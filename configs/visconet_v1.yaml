@@ -30,7 +30,7 @@ model:
         cooldown: 0
         min_lr: 0.00001
         threshold: 0.001
-        verbose: True    
+        verbose: True
 
     control_cond_config:
       target: visconet.modules.ProjectLocalStyle
@@ -38,7 +38,7 @@ model:
         pool_size: 9
         local_emb_size: 257
         bias: True
-       #target: visconet.modules.ClipImageEncoder
+        #target: visconet.modules.ClipImageEncoder
 
     control_stage_config:
       target: cldm.cldm.ControlNet
@@ -48,9 +48,9 @@ model:
         in_channels: 4
         hint_channels: 3
         model_channels: 320
-        attention_resolutions: [ 4, 2, 1 ]
+        attention_resolutions: [4, 2, 1]
         num_res_blocks: 2
-        channel_mult: [ 1, 2, 4, 4 ]
+        channel_mult: [1, 2, 4, 4]
         num_head_channels: 64 # need to fix for flash-attn
         use_spatial_transformer: True
         use_linear_in_transformer: True
@@ -66,9 +66,9 @@ model:
         in_channels: 4
         out_channels: 4
         model_channels: 320
-        attention_resolutions: [ 4, 2, 1 ]
+        attention_resolutions: [4, 2, 1]
         num_res_blocks: 2
-        channel_mult: [ 1, 2, 4, 4 ]
+        channel_mult: [1, 2, 4, 4]
         num_head_channels: 64 # need to fix for flash-attn
         use_spatial_transformer: True
         use_linear_in_transformer: True
@@ -90,10 +90,10 @@ model:
           out_ch: 3
           ch: 128
           ch_mult:
-          - 1
-          - 2
-          - 4
-          - 4
+            - 1
+            - 2
+            - 4
+            - 4
           num_res_blocks: 2
           attn_resolutions: []
           dropout: 0.0
@@ -119,11 +119,11 @@ dataset:
       style_dir: styles_default
       style_postfix: _hidden
       mask_dir: smpl_256
-      data_files: 
-         - data/deepfashion/pairs-train-all.csv
-         - data/deepfashion/solo-train-all.csv
+      data_files:
+        - data/deepfashion/pairs-train-all.csv
+        - data/deepfashion/solo-train-all.csv
       map_file: data/deepfashion/deepfashion_map.csv
-      style_emb_shape: 
+      style_emb_shape:
         - 257
         - 1024
       style_names:
@@ -134,7 +134,7 @@ dataset:
         - outer
         - bottom
         - shoes
-        - accesories     
+        - accesories
   val:
     target: visconet.deepfashion.DeepFashionDataset
     params:
@@ -144,11 +144,11 @@ dataset:
       style_dir: styles_default
       style_postfix: _hidden
       mask_dir: smpl_256
-      data_files: 
-      - data/deepfashion/pairs-test-all.csv
+      data_files:
+        - data/deepfashion/pairs-test-all.csv
       map_file: data/deepfashion/deepfashion_map.csv
       sample_ratio: 1.0
-      style_emb_shape: 
+      style_emb_shape:
         - 257
         - 1024
       style_names:
@@ -159,4 +159,4 @@ dataset:
         - outer
         - bottom
         - shoes
-        - accesories           
+        - accesories

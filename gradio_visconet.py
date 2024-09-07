@@ -181,19 +181,35 @@ def log_sample(seed, results, prompt, skeleton_image,  mask_image, control_scale
         if style_image is not None:
             style_image.save(str(log_dir/f'{style_name}.jpg'))
 
-
+# NOTE: This is the function that does the generation
 def process(prompt, a_prompt, n_prompt, num_samples,
             ddim_steps, scale, seed, eta, mask_image, pose_image,  
             c12, c11, c10, c9, c8, c7, c6, c5, c4, c3, c2, c1, c0,
             *viscon_images):
-
+    '''
+    prompt and a_prompt: To be used as positive prompt in generation 
+    n_prompt: To be used as negative prompt in generation
+    Used as such: 
+        cond = {"c_concat": [control], 
+            "c_crossattn": [style_emb.repeat(new_style_shape)],
+            "c_text": [model.get_learned_conditioning([prompt + ', ' + a_prompt] * num_samples)],
+            'c_concat_mask': [mask.repeat(num_samples, 1, 1, 1)]}
+    num_samples: number of images to generate for
+    mask_image: mask of the person (foreground) excluding background
+    pose_image: RGB pose image of the desired pose
+    c0-c12: control scales to use for the middle block and the output blocks
+    viscon_images: style images, cropped out fashion attributes
+    '''
+    
     with torch.no_grad():
         control_scales = [c12, c11, c10, c9, c8, c7, c6, c5, c4, c3, c2, c1, c0]
         mask = torch.tensor(mask_image.mean(-1)/255.,dtype=torch.float) #(512,512), [0,1]
         mask = mask.unsqueeze(0).to(device) # (1, 512, 512)
+        # NOTE: Get embeddings of style
         style_emb = encode_style_images(viscon_images)
 
         # fix me
+        # NOTE: Get poses
         detected_map = HWC3(pose_image)
         #detected_map = cv2.resize(detected_map, (W, H), interpolation=cv2.INTER_NEAREST)
         H, W, C = detected_map.shape
@@ -208,12 +224,12 @@ def process(prompt, a_prompt, n_prompt, num_samples,
         if config.save_memory:
             model.low_vram_shift(is_diffusing=False)
         new_style_shape = [num_samples] + [1] * (len(style_emb.shape)-1)
-  
+
+        # for CFG
         cond = {"c_concat": [control], 
                 "c_crossattn": [style_emb.repeat(new_style_shape)],
                 "c_text": [model.get_learned_conditioning([prompt + ', ' + a_prompt] * num_samples)],
                 'c_concat_mask': [mask.repeat(num_samples, 1, 1, 1)]}
-
         un_cond = {"c_concat": [control], 
                    "c_crossattn": [torch.zeros_like(style_emb).repeat(new_style_shape)],
                    "c_text":[model.get_learned_conditioning([n_prompt] * num_samples)],
@@ -385,6 +401,7 @@ def create_app():
                                             outputs=viscon_images[viscon_idx])
         ips = [prompt, a_prompt, n_prompt, num_samples, ddim_steps, scale, seed, eta, mask_image, pose_image, 
             *control_scales, *viscon_images]
+        # NOTE: This line runs the function to generate the image
         run_button.click(fn=process, inputs=ips, outputs=[result_gallery])
         prompt.submit(fn=process, inputs=ips, outputs=[result_gallery])
         get_pose_button.click(fn=extract_pose_mask, inputs=[input_image, detect_resolution, 

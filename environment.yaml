@@ -1,8 +1,8 @@
-name: control
+name: visconet
 channels:
   - pytorch
   - defaults
-  - conda-forge 
+  - conda-forge
 dependencies:
   - python=3.8.5
   - pip=20.3
