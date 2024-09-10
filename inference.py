@@ -65,7 +65,7 @@ def log_sample(seed, results, prompt, skeleton_image,  mask_image, control_scale
 # NOTE: This is the function that does the generation
 def process(prompt, a_prompt, n_prompt, num_samples,
             ddim_steps, scale, seed, eta, mask_image, pose_image,  
-            control_scales, log_samples, *viscon_images):
+            control_scales, log_samples, conditioning_image=None, *viscon_images):
     '''
     prompt and a_prompt: To be used as positive prompt in generation 
     n_prompt: To be used as negative prompt in generation
@@ -82,8 +82,10 @@ def process(prompt, a_prompt, n_prompt, num_samples,
     num_samples: number of images to generate for
     mask_image: mask of the person (foreground) excluding background
     pose_image: RGB pose image of the desired pose
-    c0-c12: control scales to use for the middle block and the output blocks
+    c0-c12: control scales to use for the middle block and the output block
     viscon_images: style images, cropped out fashion attributes
+    
+    # STEP: Added an additional argument conditoning_image to pass in image prompt to be given to IP-Adapter
     '''
     
     with torch.no_grad():
@@ -111,22 +113,29 @@ def process(prompt, a_prompt, n_prompt, num_samples,
         new_style_shape = [num_samples] + [1] * (len(style_emb.shape)-1)
 
         # for CFG
-        cond = {"c_concat": [control], 
-                "c_crossattn": [style_emb.repeat(new_style_shape)],
-                "c_text": [model.get_learned_conditioning([prompt + ', ' + a_prompt] * num_samples)],
-                'c_concat_mask': [mask.repeat(num_samples, 1, 1, 1)]}
+        cond = {"c_concat": [control], # control pose
+                "c_crossattn": [style_emb.repeat(new_style_shape)], # image style for cross attn with controlnet
+                "c_text": [model.get_learned_conditioning([prompt + ', ' + a_prompt] * num_samples)], # text prompt
+                'c_concat_mask': [mask.repeat(num_samples, 1, 1, 1)]} # person mask, to be fed with output of controlnet
         un_cond = {"c_concat": [control], 
                    "c_crossattn": [torch.zeros_like(style_emb).repeat(new_style_shape)],
                    "c_text":[model.get_learned_conditioning([n_prompt] * num_samples)],
                    'c_concat_mask': [torch.zeros_like(mask).repeat(num_samples, 1, 1, 1)]}
         
+        if conditioning_image:
+            # STEP: Added c_img for IP-Adapter image prompt here
+            # STEP: Added black image for IP-Adapter image negative prompt here
+            cond["c_img"] = [conditioning_image.repeat(num_samples, 1, 1, 1)]
+            un_cond["c_img"] = [torch.zero_like(conditioning_image).repeat(num_samples, 1, 1, 1)]
+
         shape = (4, H // 8, W // 8)
 
         if config.save_memory:
             model.low_vram_shift(is_diffusing=True)
 
         model.control_scales = control_scales
-
+        
+        # TODO: Modify the sampling and apply_model function
         samples, _ = ddim_sampler.sample(ddim_steps, num_samples,
                                                      shape, cond, verbose=False, eta=eta,
                                                      unconditional_guidance_scale=scale,
@@ -148,7 +157,6 @@ def process(prompt, a_prompt, n_prompt, num_samples,
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    # TODO: Need to handle images
     parser.add_argument("mask_image_fp", type=str, help="filepath to binary mask of subject/background")
     parser.add_argument("pose_image_fp", type=str, help="filepath to RGB pose image")
 
@@ -166,7 +174,10 @@ if __name__ == "__main__":
     parser.add_argument("--eta", type=float, default=0., help="eta value that controls how much noise is added to image at each reverse step in diffusion process")
     parser.add_argument("--control_scale_type", type=str, default="Default", help="key value to the control scales (c0-c12) type configuration")
     parser.add_argument("--log_samples", action="store_true", help="boolean whether to save generated samples")
-     
+    
+    # STEP: Add argument for IP-Adapter image
+    parser.add_argument("--ip_adapter_image_fp", type=str, default=None, help="filepath to IP-Adapter image prompt")
+
     parser.add_argument("--viscon_face_img", type=str, default=None, help="Visual conditioning of the face using a face image.")
     parser.add_argument("--viscon_hair_img", type=str, default=None, help="Visual conditioning of the hair using a hair image.")
     parser.add_argument("--viscon_headwear_img", type=str, default=None, help="Visual conditioning of the hair using a headwear image.")
@@ -211,8 +222,10 @@ if __name__ == "__main__":
     model.cond_stage_model.device = device
     ddim_sampler = DDIMSampler(model)
 
-    mask_img = np.array(Image.open(os.path.join(os.getcwd(), args.mask_image_fp)))
-    pose_img = np.array(Image.open(os.path.join(os.getcwd(), args.pose_image_fp)))
+    mask_img = np.array(Image.open(os.path.join(os.getcwd(), args.mask_image_fp)).resize((512,512)))
+    pose_img = np.array(Image.open(os.path.join(os.getcwd(), args.pose_image_fp)).resize((512,512)))
+    # STEP: Added reading in of IP-Adapter
+    c_img = np.array(Image.open(os.path.join(os.getcwd(), args.ip_adapter_image_fp)).resize((512,512)))
 
     DEFAULT_CONTROL_SCALE = 1.0
     SCALE_CONFIG = {
@@ -251,6 +264,7 @@ if __name__ == "__main__":
         else:
             viscon_images.append(None)
 
+    # STEP: Added argument for IP-Adapter image prompt
     process(args.prompt, args.a_prompt, args.n_prompt, args.num_samples, args.ddim_steps,
             args.cfg_scale, args.seed, args.eta, mask_img, pose_img, control_scales,
-            args.log_samples, *viscon_images)
+            args.log_samples, conditioning_image=c_img, *viscon_images)

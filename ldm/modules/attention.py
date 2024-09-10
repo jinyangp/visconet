@@ -249,7 +249,7 @@ class BasicTransformerBlock(nn.Module):
         "softmax-xformers": MemoryEfficientCrossAttention
     }
     def __init__(self, dim, n_heads, d_head, dropout=0., context_dim=None, gated_ff=True, checkpoint=True,
-                 disable_self_attn=False):
+                 disable_self_attn=False, decoupled_cross_attn=False):
         super().__init__()
         attn_mode = "softmax-xformers" if XFORMERS_IS_AVAILBLE else "softmax"
         assert attn_mode in self.ATTENTION_MODES
@@ -260,6 +260,11 @@ class BasicTransformerBlock(nn.Module):
         self.ff = FeedForward(dim, dropout=dropout, glu=gated_ff)
         self.attn2 = attn_cls(query_dim=dim, context_dim=context_dim,
                               heads=n_heads, dim_head=d_head, dropout=dropout)  # is self-attn if context is none
+        # STEP: We add an additional CrossAttention layer here
+        self.decoupled_cross_attn = decoupled_cross_attn
+        if decoupled_cross_attn:
+            self.attn3 = attn_cls(query_dim=dim, context_dim=context_dim,
+                                  heads=n_heads, dim_head=d_head, dropout=dropout)
         self.norm1 = nn.LayerNorm(dim)
         self.norm2 = nn.LayerNorm(dim)
         self.norm3 = nn.LayerNorm(dim)
@@ -269,8 +274,20 @@ class BasicTransformerBlock(nn.Module):
         return checkpoint(self._forward, (x, context), self.parameters(), self.checkpoint)
 
     def _forward(self, x, context=None):
+        
         x = self.attn1(self.norm1(x), context=context if self.disable_self_attn else None) + x
-        x = self.attn2(self.norm2(x), context=context) + x
+
+        if self.decoupled_cross_attn:
+            # STEP: If IP-Adapter is being used here, we concatenate them along the same dimension and chunk them for
+            # processing
+            # STEP: Perform attention sequentially on image and text and then add the residue to it
+            cond_text, cond_img = torch.chunk(context, 2, dim=1)
+            text_x = self.attn2(self.norm2(x), context=cond_text)
+            img_x = self.attn2(self.norm2(x), context=cond_img)
+            x = text_x + img_x + x
+        else:
+            x = self.attn2(self.norm2(x), context=context) + x
+        
         x = self.ff(self.norm3(x)) + x
         return x
 
@@ -284,10 +301,29 @@ class SpatialTransformer(nn.Module):
     Finally, reshape to image
     NEW: use_linear for more efficiency instead of the 1x1 convs
     """
+
+    '''
+    Example Usage:
+    layers.append(
+        AttentionBlock(
+            ch,
+            use_checkpoint=use_checkpoint,
+            num_heads=num_heads,
+            num_head_channels=dim_head,
+            use_new_attention_order=use_new_attention_order,
+        ) if not use_spatial_transformer else SpatialTransformer(
+            ch, num_heads, dim_head, depth=transformer_depth, context_dim=context_dim,
+            disable_self_attn=disabled_sa, use_linear=use_linear_in_transformer,
+            use_checkpoint=use_checkpoint
+        )
+    )
+    '''
+    # STEP: For IP-Adapter, added additional decoupled_cross_attn flag to indicate if we are using IP-Adapter
+    # or not
     def __init__(self, in_channels, n_heads, d_head,
                  depth=1, dropout=0., context_dim=None,
-                 disable_self_attn=False, use_linear=False,
-                 use_checkpoint=True):
+                 disable_self_attn=False, decoupled_cross_attn=False,
+                 use_linear=False, use_checkpoint=True):
         super().__init__()
         if exists(context_dim) and not isinstance(context_dim, list):
             context_dim = [context_dim]
@@ -305,7 +341,8 @@ class SpatialTransformer(nn.Module):
 
         self.transformer_blocks = nn.ModuleList(
             [BasicTransformerBlock(inner_dim, n_heads, d_head, dropout=dropout, context_dim=context_dim[d],
-                                   disable_self_attn=disable_self_attn, checkpoint=use_checkpoint)
+                                   disable_self_attn=disable_self_attn, decoupled_cross_attn=decoupled_cross_attn,
+                                   checkpoint=use_checkpoint)
                 for d in range(depth)]
         )
         if not use_linear:

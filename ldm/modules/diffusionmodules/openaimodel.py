@@ -466,6 +466,7 @@ class UNetModel(nn.Module):
         n_embed=None,                     # custom support for prediction of discrete ids into codebook of first stage vq model
         legacy=True,
         disable_self_attentions=None,
+        decoupled_cross_attn=False, # STEP: Added a flag on whether we are using IP-Adapter
         num_attention_blocks=None,
         disable_middle_self_attn=False,
         use_linear_in_transformer=False,
@@ -539,6 +540,9 @@ class UNetModel(nn.Module):
             else:
                 raise ValueError()
 
+        # STEP: Initialise flag to control if IP-Adapter conditioning is being used
+        self.decoupled_cross_attn = decoupled_cross_attn
+
         self.input_blocks = nn.ModuleList(
             [
                 TimestepEmbedSequential(
@@ -579,6 +583,7 @@ class UNetModel(nn.Module):
                         disabled_sa = False
 
                     if not exists(num_attention_blocks) or nr < num_attention_blocks[level]:
+                        # STEP: Added flag on whether we are using IP-Adapter here
                         layers.append(
                             AttentionBlock(
                                 ch,
@@ -588,8 +593,8 @@ class UNetModel(nn.Module):
                                 use_new_attention_order=use_new_attention_order,
                             ) if not use_spatial_transformer else SpatialTransformer(
                                 ch, num_heads, dim_head, depth=transformer_depth, context_dim=context_dim,
-                                disable_self_attn=disabled_sa, use_linear=use_linear_in_transformer,
-                                use_checkpoint=use_checkpoint
+                                disable_self_attn=disabled_sa, decoupled_cross_attn=self.decoupled_cross_attn,
+                                use_linear=use_linear_in_transformer, use_checkpoint=use_checkpoint
                             )
                         )
                 self.input_blocks.append(TimestepEmbedSequential(*layers))
@@ -637,6 +642,7 @@ class UNetModel(nn.Module):
                 use_checkpoint=use_checkpoint,
                 use_scale_shift_norm=use_scale_shift_norm,
             ),
+            # STEP: Added flag on whether we are using IP-Adapter here
             AttentionBlock(
                 ch,
                 use_checkpoint=use_checkpoint,
@@ -645,8 +651,8 @@ class UNetModel(nn.Module):
                 use_new_attention_order=use_new_attention_order,
             ) if not use_spatial_transformer else SpatialTransformer(  # always uses a self-attn
                             ch, num_heads, dim_head, depth=transformer_depth, context_dim=context_dim,
-                            disable_self_attn=disable_middle_self_attn, use_linear=use_linear_in_transformer,
-                            use_checkpoint=use_checkpoint
+                            disable_self_attn=disabled_sa, decoupled_cross_attn=self.decoupled_cross_attn,
+                            use_linear=use_linear_in_transformer, use_checkpoint=use_checkpoint
                         ),
             ResBlock(
                 ch,
@@ -690,6 +696,7 @@ class UNetModel(nn.Module):
                         disabled_sa = False
 
                     if not exists(num_attention_blocks) or i < num_attention_blocks[level]:
+                        # STEP: Added flag on whether we are using IP-Adapter here
                         layers.append(
                             AttentionBlock(
                                 ch,
@@ -699,8 +706,8 @@ class UNetModel(nn.Module):
                                 use_new_attention_order=use_new_attention_order,
                             ) if not use_spatial_transformer else SpatialTransformer(
                                 ch, num_heads, dim_head, depth=transformer_depth, context_dim=context_dim,
-                                disable_self_attn=disabled_sa, use_linear=use_linear_in_transformer,
-                                use_checkpoint=use_checkpoint
+                                disable_self_attn=disabled_sa, decoupled_cross_attn=self.decoupled_cross_attn,
+                                use_linear=use_linear_in_transformer, use_checkpoint=use_checkpoint
                             )
                         )
                 if level and i == self.num_res_blocks[level]:
