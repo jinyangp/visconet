@@ -418,6 +418,17 @@ class DDPM(pl.LightningModule):
         return self.p_losses(x, t, *args, **kwargs)
 
     def get_input(self, batch, k):
+        '''
+        The batch consists of inputs in the form of a dictionary where each dictionary is as follows:
+        {
+            "image": source image to be fed into DDPM
+            "text": text prompt to be used as conditioning
+            "image_prompt": image prompt to be used as conditioning
+        }
+        As of now in DDPM, only the "image" key is being used.
+        Then, prepare the input to be passed into the model from image format
+        (b h w c) to (b c h w)
+        '''
         x = batch[k]
         if len(x.shape) == 3:
             x = x[..., None]
@@ -663,6 +674,7 @@ class LatentDiffusion(DDPM):
         return self.scale_factor * z
 
     def get_learned_conditioning(self, c):
+        # NOTE: self.cond_stage_forward is set to None here
         if self.cond_stage_forward is None:
             if hasattr(self.cond_stage_model, 'encode') and callable(self.cond_stage_model.encode):
                 c = self.cond_stage_model.encode(c)
@@ -767,17 +779,35 @@ class LatentDiffusion(DDPM):
     @torch.no_grad()
     def get_input(self, batch, k, return_first_stage_outputs=False, force_c_encode=False,
                   cond_key=None, return_original_cond=False, bs=None, return_x=False):
+        
+        '''
+        The batch consists of inputs in the form of a dictionary where each dictionary is as follows:
+        {
+            "image": source image to be fed into DDPM
+            "txt": text prompt to be used as conditioning
+            "image_prompt": image prompt to be used as conditioning
+        }
+        As of now in DDPM, only the "image" key is being used.
+        Then, prepare the input to be passed into the model from image format
+        (b h w c) to (b c h w)
+        '''
+        
+        # STEP: Get the images in this batch and make it into the (b,c,h,w) format ready for further processing
         x = super().get_input(batch, k)
+        # STEP: Get the first k elements of the batch to perform mini-batch processing (select a subset within the batch)
         if bs is not None:
             x = x[:bs]
         x = x.to(self.device)
 
+        # STEP: Get the latent representations of the input image
         encoder_posterior = self.encode_first_stage(x)
         z = self.get_first_stage_encoding(encoder_posterior).detach()
 
         if self.model.conditioning_key is not None and not self.force_null_conditioning:
             if cond_key is None:
                 cond_key = self.cond_stage_key
+            # STEP: We assign xc to the cond_stage value. In the case we are using text prompts,
+            # we access batch["txt"] to get the text prompt that was given
             if cond_key != self.first_stage_key:
                 if cond_key in ['caption', 'coordinates_bbox', "txt"]:
                     xc = batch[cond_key]
@@ -787,6 +817,8 @@ class LatentDiffusion(DDPM):
                     xc = super().get_input(batch, cond_key).to(self.device)
             else:
                 xc = x
+            # STEP: In this case, cond_stage_trainable is False so we use the pretrained weights
+            # to get the embeddings of the text prompt
             if not self.cond_stage_trainable or force_c_encode:
                 if isinstance(xc, dict) or isinstance(xc, list):
                     c = self.get_learned_conditioning(xc)
@@ -794,27 +826,33 @@ class LatentDiffusion(DDPM):
                     c = self.get_learned_conditioning(xc.to(self.device))
             else:
                 c = xc
+            # STEP: We take only the text prompt accordiin to the batch size
             if bs is not None:
                 c = c[:bs]
-
+            
+            # STEP: If we are using positional encodings for the conditioning prompt aka text in this case
             if self.use_positional_encodings:
                 pos_x, pos_y = self.compute_latent_shifts(batch)
                 ckey = __conditioning_keys__[self.model.conditioning_key]
                 c = {ckey: c, 'pos_x': pos_x, 'pos_y': pos_y}
-
+        # STEP: Else, if no conditoning is applied.
         else:
             c = None
             xc = None
             if self.use_positional_encodings:
                 pos_x, pos_y = self.compute_latent_shifts(batch)
                 c = {'pos_x': pos_x, 'pos_y': pos_y}
+        # STEP: We return the latent of the source image z and the conditoning embeddings
         out = [z, c]
 
+        # STEP: If we want to return original and reconstructed decoded image
         if return_first_stage_outputs:
             xrec = self.decode_first_stage(z)
             out.extend([x, xrec])
+        # STEP: If we want to return x only
         if return_x:
             out.extend([x])
+        # STEP: If we want to return the original conditionings
         if return_original_cond:
             out.append(xc)
         return out
@@ -840,6 +878,12 @@ class LatentDiffusion(DDPM):
         return loss
 
     def forward(self, x, c, *args, **kwargs):
+        '''
+        Input:
+        x: This is the input image or data that will go through the diffusion process.
+        c: This is the conditioning information (e.g., text embedding, pose embedding) that influences how the diffusion model generates or modifies x.
+        *args, **kwargs: These capture any extra arguments for flexibility. This allows for other arguments/named keyword arguments such as only_mid_control
+        '''
         t = torch.randint(0, self.num_timesteps, (x.shape[0],), device=self.device).long()
         if self.model.conditioning_key is not None:
             assert c is not None
@@ -851,6 +895,9 @@ class LatentDiffusion(DDPM):
         return self.p_losses(x, c, t, *args, **kwargs)
 
     def apply_model(self, x_noisy, t, cond, return_ids=False):
+        '''
+        
+        '''
         if isinstance(cond, dict):
             # hybrid case, cond is expected to be a dict
             pass

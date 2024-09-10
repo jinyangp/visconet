@@ -285,6 +285,36 @@ class ControlNet(nn.Module):
         t_emb = timestep_embedding(timesteps, self.model_channels, repeat_only=False)
         emb = self.time_embed(t_emb)
 
+        """
+        self.input_hint_block = TimestepEmbedSequential(
+            conv_nd(dims, hint_channels, 16, 3, padding=1),
+            nn.SiLU(),
+            conv_nd(dims, 16, 16, 3, padding=1),
+            nn.SiLU(),
+            conv_nd(dims, 16, 32, 3, padding=1, stride=2),
+            nn.SiLU(),
+            conv_nd(dims, 32, 32, 3, padding=1),
+            nn.SiLU(),
+            conv_nd(dims, 32, 96, 3, padding=1, stride=2),
+            nn.SiLU(),
+            conv_nd(dims, 96, 96, 3, padding=1),
+            nn.SiLU(),
+            conv_nd(dims, 96, 256, 3, padding=1, stride=2),
+            nn.SiLU(),
+            zero_module(conv_nd(dims, 256, model_channels, 3, padding=1))
+        )
+
+        def forward(self, x, emb, context=None):
+            for layer in self:
+                if isinstance(layer, TimestepBlock):
+                    x = layer(x, emb)
+                elif isinstance(layer, SpatialTransformer):
+                    x = layer(x, context)
+                else:
+                    x = layer(x)
+            return x
+        """
+        # STEP: Gets the hint from 3 channels (originally a RGB image to the number of channels as specified in model_channels variable)
         guided_hint = self.input_hint_block(hint, emb, context)
 
         outs = []
@@ -292,6 +322,7 @@ class ControlNet(nn.Module):
         h = x.type(self.dtype)
         for module, zero_conv in zip(self.input_blocks, self.zero_convs):
             if guided_hint is not None:
+                # in first block, we convolute original source image, from 3 channels, to the number of channels specified by model_channels
                 h = module(h, emb, context)
                 h += guided_hint
                 guided_hint = None
