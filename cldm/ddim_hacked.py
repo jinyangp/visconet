@@ -51,7 +51,9 @@ class DDIMSampler(object):
             (1 - self.alphas_cumprod_prev) / (1 - self.alphas_cumprod) * (
                         1 - self.alphas_cumprod / self.alphas_cumprod_prev))
         self.register_buffer('ddim_sigmas_for_original_num_steps', sigmas_for_original_sampling_steps)
-
+    
+    # NOTE: The function , .process() in the gradio app, used to generate images calls this function
+    # NOTE: self.model = model, the visconet model is stored under self.model
     @torch.no_grad()
     def sample(self,
                S,
@@ -184,8 +186,9 @@ class DDIMSampler(object):
                       unconditional_guidance_scale=1., unconditional_conditioning=None,
                       dynamic_threshold=None):
         b, *_, device = *x.shape, x.device
-
+        
         if unconditional_conditioning is None or unconditional_guidance_scale == 1.:
+            # TODO: Integrate the image prompt of IP-Adapter here
             model_output = self.model.apply_model(x, t, c)
         else: # TODO
             model_t = self.model.apply_model(x, t, c)

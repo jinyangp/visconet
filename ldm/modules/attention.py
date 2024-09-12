@@ -283,7 +283,7 @@ class BasicTransformerBlock(nn.Module):
             # STEP: Perform attention sequentially on image and text and then add the residue to it
             cond_text, cond_img = torch.chunk(context, 2, dim=1)
             text_x = self.attn2(self.norm2(x), context=cond_text)
-            img_x = self.attn2(self.norm2(x), context=cond_img)
+            img_x = self.attn3(self.norm2(x), context=cond_img)
             x = text_x + img_x + x
         else:
             x = self.attn2(self.norm2(x), context=context) + x

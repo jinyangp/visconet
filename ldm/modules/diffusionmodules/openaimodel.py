@@ -593,7 +593,7 @@ class UNetModel(nn.Module):
                                 use_new_attention_order=use_new_attention_order,
                             ) if not use_spatial_transformer else SpatialTransformer(
                                 ch, num_heads, dim_head, depth=transformer_depth, context_dim=context_dim,
-                                disable_self_attn=disabled_sa, decoupled_cross_attn=self.decoupled_cross_attn,
+                                disable_self_attn=disabled_sa, decoupled_cross_attn=decoupled_cross_attn,
                                 use_linear=use_linear_in_transformer, use_checkpoint=use_checkpoint
                             )
                         )
@@ -651,7 +651,7 @@ class UNetModel(nn.Module):
                 use_new_attention_order=use_new_attention_order,
             ) if not use_spatial_transformer else SpatialTransformer(  # always uses a self-attn
                             ch, num_heads, dim_head, depth=transformer_depth, context_dim=context_dim,
-                            disable_self_attn=disabled_sa, decoupled_cross_attn=self.decoupled_cross_attn,
+                            disable_self_attn=disabled_sa, decoupled_cross_attn=decoupled_cross_attn,
                             use_linear=use_linear_in_transformer, use_checkpoint=use_checkpoint
                         ),
             ResBlock(
@@ -706,7 +706,7 @@ class UNetModel(nn.Module):
                                 use_new_attention_order=use_new_attention_order,
                             ) if not use_spatial_transformer else SpatialTransformer(
                                 ch, num_heads, dim_head, depth=transformer_depth, context_dim=context_dim,
-                                disable_self_attn=disabled_sa, decoupled_cross_attn=self.decoupled_cross_attn,
+                                disable_self_attn=disabled_sa, decoupled_cross_attn=decoupled_cross_attn,
                                 use_linear=use_linear_in_transformer, use_checkpoint=use_checkpoint
                             )
                         )
