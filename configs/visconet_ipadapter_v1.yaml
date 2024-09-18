@@ -10,7 +10,7 @@ model:
     cond_stage_key: "txt" # text prompt
     control_key: "hint" # image pose prompt - for openpose
     control_crossattn_key: "styles" # image pose prompt - for fashion attribute styles
-    mask_key: "human_mask" # TODO: How to get the inverse mask and use it with IP-Adapter?
+    mask_key: "human_mask"
     cond_stage_img_key: "adapter_jpg" # STEP: added conditioning image to be passed to IP-Adapter, remove if not using IP-Adapter
     image_size: 64
     channels: 4

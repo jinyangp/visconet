@@ -87,7 +87,8 @@ class ViscoNetLDM(LatentDiffusion):
         cond_mask = torch.cat(cond['c_concat_mask'], 1)
         cond_concat = torch.cat(cond['c_concat'], 1)
         # STEP: Added cond_img (as image prompt for IP-Adapter)
-        cond_img = torch.cat(cond['c_img'], 1)
+        if 'c_img' in cond:
+            cond_img = torch.cat(cond['c_img'], 1)
         # project style images into clip embedding     
         emb_cross = self.control_cond_model(cond_cross)
 
