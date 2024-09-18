@@ -143,7 +143,8 @@ class SpatialSelfAttention(nn.Module):
 
 
 class CrossAttention(nn.Module):
-    def __init__(self, query_dim, context_dim=None, heads=8, dim_head=64, dropout=0.):
+    def __init__(self, query_dim, context_dim=None, heads=8,
+                 dim_head=64, dropout=0., decoupled_cross_attn=False):
         super().__init__()
         inner_dim = dim_head * heads
         context_dim = default(context_dim, query_dim)
@@ -155,21 +156,32 @@ class CrossAttention(nn.Module):
         self.to_k = nn.Linear(context_dim, inner_dim, bias=False)
         self.to_v = nn.Linear(context_dim, inner_dim, bias=False)
 
+        self.decoupled_cross_attn = decoupled_cross_attn
+        if self.decoupled_cross_attn:
+            # NOTE: We do not need to instantiate two seperate variables (text_context_dim and img_context_dim)
+            # since both text and img context would have the same dimension
+            self.to_k_ip = nn.Linear(context_dim, inner_dim, bias=False)
+            self.to_v_ip = nn.Linear(context_dim, inner_dim, bias=False)
         self.to_out = nn.Sequential(
             nn.Linear(inner_dim, query_dim),
             nn.Dropout(dropout)
         )
 
-    def forward(self, x, context=None, mask=None):
-        h = self.heads
+    def _perform_qkv(self, x, context=None, mask=None, context_key="txt"):
 
+        h = self.heads
         q = self.to_q(x)
-        context = default(context, x)
-        k = self.to_k(context)
-        v = self.to_v(context)
+
+        if context_key == "txt":
+            k = self.to_k(context)
+            v = self.to_v(context)
+        else:
+            k = self.to_k_ip(context) 
+            v = self.to_v_ip(context)
 
         q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> (b h) n d', h=h), (q, k, v))
 
+        # STEP: Get similarity matrix
         # force cast to fp32 to avoid overflowing
         if _ATTN_PRECISION =="fp32":
             with torch.autocast(enabled=False, device_type = 'cuda'):
@@ -179,17 +191,34 @@ class CrossAttention(nn.Module):
             sim = einsum('b i d, b j d -> b i j', q, k) * self.scale
         
         del q, k
-    
+
         if exists(mask):
+            # reshapes mask from whatever shape and flattens it to a mask of 2D shape (batch_size, sequence_length)
             mask = rearrange(mask, 'b ... -> b (...)')
+            # retrieve maximum representatable value for the data type of sim tensor (float32)
             max_neg_value = -torch.finfo(sim.dtype).max
+            # reshapes mask to shape of (batch_size*num_heads, 1, sequence_length)
+            # () adds a singleton dimension
             mask = repeat(mask, 'b j -> (b h) () j', h=h)
             sim.masked_fill_(~mask, max_neg_value)
-
-        # attention, what we cannot get enough of
+        
         sim = sim.softmax(dim=-1)
-
         out = einsum('b i j, b j d -> b i d', sim, v)
+        return out
+    
+    def forward(self, x, context=None, mask=None):
+
+        h = self.heads
+        context = default(context,x)
+
+        if self.decoupled_cross_attn:
+            cond_text, cond_img = torch.chunk(context, 2, dim=1)
+            out_text = self._perform_qkv(x, cond_text, mask=mask, context_key="txt")
+            out_img = self._perform_qkv(x, cond_img, mask=mask, context_key="img")
+            out = out_text + out_img
+        else:
+            out = self._perform_qkv(x, context,mask=mask)
+
         out = rearrange(out, '(b h) n d -> b n (h d)', h=h)
         return self.to_out(out)
 
@@ -258,13 +287,10 @@ class BasicTransformerBlock(nn.Module):
         self.attn1 = attn_cls(query_dim=dim, heads=n_heads, dim_head=d_head, dropout=dropout,
                               context_dim=context_dim if self.disable_self_attn else None)  # is a self-attention if not self.disable_self_attn
         self.ff = FeedForward(dim, dropout=dropout, glu=gated_ff)
-        self.attn2 = attn_cls(query_dim=dim, context_dim=context_dim,
-                              heads=n_heads, dim_head=d_head, dropout=dropout)  # is self-attn if context is none
         # STEP: We add an additional CrossAttention layer here
         self.decoupled_cross_attn = decoupled_cross_attn
-        if decoupled_cross_attn:
-            self.attn3 = attn_cls(query_dim=dim, context_dim=context_dim,
-                                  heads=n_heads, dim_head=d_head, dropout=dropout)
+        self.attn2 = attn_cls(query_dim=dim, context_dim=context_dim,
+                              heads=n_heads, dim_head=d_head, dropout=dropout, decoupled_cross_attn=decoupled_cross_attn)  # is self-attn if context is none
         self.norm1 = nn.LayerNorm(dim)
         self.norm2 = nn.LayerNorm(dim)
         self.norm3 = nn.LayerNorm(dim)
@@ -276,18 +302,7 @@ class BasicTransformerBlock(nn.Module):
     def _forward(self, x, context=None):
         
         x = self.attn1(self.norm1(x), context=context if self.disable_self_attn else None) + x
-
-        if self.decoupled_cross_attn:
-            # STEP: If IP-Adapter is being used here, we concatenate them along the same dimension and chunk them for
-            # processing
-            # STEP: Perform attention sequentially on image and text and then add the residue to it
-            cond_text, cond_img = torch.chunk(context, 2, dim=1)
-            text_x = self.attn2(self.norm2(x), context=cond_text)
-            img_x = self.attn3(self.norm2(x), context=cond_img)
-            x = text_x + img_x + x
-        else:
-            x = self.attn2(self.norm2(x), context=context) + x
-        
+        x = self.attn2(self.norm2(x), context=context) + x
         x = self.ff(self.norm3(x)) + x
         return x
 
