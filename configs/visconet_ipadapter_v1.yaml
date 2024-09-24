@@ -11,7 +11,7 @@ model:
     control_key: "hint" # image pose prompt - for openpose
     control_crossattn_key: "styles" # image pose prompt - for fashion attribute styles
     mask_key: "human_mask"
-    cond_stage_img_key: "adapter_jpg" # STEP: added conditioning image to be passed to IP-Adapter, remove if not using IP-Adapter
+    # cond_stage_img_key: "adapter_jpg" # STEP: added conditioning image to be passed to IP-Adapter, remove if not using IP-Adapter
     image_size: 64
     channels: 4
     cond_stage_trainable: false
@@ -79,7 +79,8 @@ model:
         transformer_depth: 1
         context_dim: 1024
         legacy: False
-        decoupled_cross_attn: True # STEP: Added flag on whether we use IP-Adapter here
+        # decoupled_cross_attn: True # STEP: Added flag on whether we use IP-Adapter here, set to False if not using IP-Adapter
+        decoupled_cross_attn: False
 
     # NOTE: VAE Encoder for image
     first_stage_config:

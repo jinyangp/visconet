@@ -186,6 +186,7 @@ class CrossAttention(nn.Module):
         if _ATTN_PRECISION =="fp32":
             with torch.autocast(enabled=False, device_type = 'cuda'):
                 q, k = q.float(), k.float()
+                # (b*h, n, d) (b*h, n, d) -> (b*h, n, n)
                 sim = einsum('b i d, b j d -> b i j', q, k) * self.scale
         else:
             sim = einsum('b i d, b j d -> b i j', q, k) * self.scale
@@ -203,6 +204,7 @@ class CrossAttention(nn.Module):
             sim.masked_fill_(~mask, max_neg_value)
         
         sim = sim.softmax(dim=-1)
+        # (b*h, n, n) (b*h, n, d) -> (b*h, n, d)
         out = einsum('b i j, b j d -> b i d', sim, v)
         return out
     
@@ -212,7 +214,7 @@ class CrossAttention(nn.Module):
         context = default(context,x)
 
         if self.decoupled_cross_attn:
-            cond_text, cond_img = torch.chunk(context, 2, dim=1)
+            cond_text, cond_img = torch.chunk(context, 2, dim=1) # TODO: This is not the correct way of IP-Adapter
             out_text = self._perform_qkv(x, cond_text, mask=mask, context_key="txt")
             out_img = self._perform_qkv(x, cond_img, mask=mask, context_key="img")
             out = out_text + out_img

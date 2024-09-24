@@ -66,7 +66,7 @@ def log_sample(seed, results, prompt, skeleton_image,  mask_image, control_scale
 # NOTE: This is the function that does the generation
 def process(prompt, a_prompt, n_prompt, num_samples,
             ddim_steps, scale, seed, eta, mask_image, pose_image,  
-            control_scales, log_samples, use_conditioning_image=False, *viscon_images):
+            control_scales, log_samples, use_conditioning_image, *viscon_images):
     '''
     prompt and a_prompt: To be used as positive prompt in generation 
     n_prompt: To be used as negative prompt in generation
@@ -136,8 +136,7 @@ def process(prompt, a_prompt, n_prompt, num_samples,
             model.low_vram_shift(is_diffusing=True)
 
         model.control_scales = control_scales
-        
-        # TODO: Modify the sampling and apply_model function
+
         samples, _ = ddim_sampler.sample(ddim_steps, num_samples,
                                                      shape, cond, verbose=False, eta=eta,
                                                      unconditional_guidance_scale=scale,
@@ -177,8 +176,6 @@ if __name__ == "__main__":
     parser.add_argument("--control_scale_type", type=str, default="Default", help="key value to the control scales (c0-c12) type configuration")
     parser.add_argument("--log_samples", action="store_true", help="boolean whether to save generated samples")
     
-    parser.add_argument("--use_conditioning_image", action="store_true", help="Whether to apply additional conditioning image with IP-Adapter.")
-
     parser.add_argument("--viscon_face_img", type=str, default=None, help="Visual conditioning of the face using a face image.")
     parser.add_argument("--viscon_hair_img", type=str, default=None, help="Visual conditioning of the hair using a hair image.")
     parser.add_argument("--viscon_headwear_img", type=str, default=None, help="Visual conditioning of the hair using a headwear image.")
@@ -187,7 +184,12 @@ if __name__ == "__main__":
     parser.add_argument("--viscon_bottom_img", type=str, default=None, help="Visual conditioning of the hair using a bottom image.")
     parser.add_argument("--viscon_shoes_img", type=str, default=None, help="Visual conditioning of the hair using a shoes image.")
     parser.add_argument("--viscon_accessory_img", type=str, default=None, help="Visual conditioning of the hair using accesories image.")
-    
+
+    # IP-Adapter integration    
+    parser.add_argument("--use_conditioning_image", action="store_true", help="Whether to apply additional conditioning image with IP-Adapter.")
+    # TODO: Remove this if not using IP-Adapter
+    # parser.add_argument("--adapter_ckpt_path", type=str, default=None, help="Path to pretrained IP-Adapter weights")
+
     args = parser.parse_args()
 
     global device
@@ -217,12 +219,20 @@ if __name__ == "__main__":
     
     # Create modeland load model's state dict
     model = create_model(config_file).cpu()    
-    model.load_state_dict(load_state_dict(model_ckpt, location=device))
+
+    # TODO: Old way
+    # model.load_state_dict(load_state_dict(model_ckpt, location=device))
+
     # Load in IP-Adapter weights if using IP-Adapter
     if args.use_conditioning_image:
-        model_state_dict = model.state_dict()
-        updated_state_dict = ip_adapter.load_adapter_weights()
-        model.load_state_dict(updated_state_dict)
+        assert args.adapter_ckpt_path, "Checkpoint of IP-Adapter must be provided."
+        adapter_ckpt_fullpath = os.path.join(os.getcwd(), args.adapter_ckpt_path)
+        model.load_from_ckpt(model_ckpt,
+                             device=device,
+                             adapter_ckpt=adapter_ckpt_fullpath)
+    else:
+        model.load_from_ckpt(model_ckpt,
+                             device=device)
 
     model = model.to(device)
 
@@ -273,4 +283,19 @@ if __name__ == "__main__":
     # STEP: Added argument for IP-Adapter image prompt
     process(args.prompt, args.a_prompt, args.n_prompt, args.num_samples, args.ddim_steps,
             args.cfg_scale, args.seed, args.eta, mask_img, pose_img, control_scales,
-            args.log_samples, use_conditioning_image=args.use_conditioning_image, *viscon_images)
+            args.log_samples, args.use_conditioning_image, *viscon_images)
+    
+    '''
+    NOTE: To run without IP-Adapter, use the following example command:
+    1. In the YAML file, remove cond_stage_img_key argument in visconet.visconet.ViscoNetLDM and decoupled_cross_attn: False in unet_config
+    2. srun -p rtx3090_slab -n 1 --job-name=test-visconet --kill-on-bad-exit=1 python3 inference.py app_files/default_images/mask.png app_files/default_images/pose.png --prompt="A woman" \
+    --a_prompt="plain studio background" --n_prompt="deformed, glitchy, low-quality" --log_samples --viscon_top_img=app_files/default_images/top.jpg \
+    --viscon_bottom_img=app_files/default_images/bottom.jpg --config="./configs/visconet_ipadapter_v1.yaml"
+    
+    NOTE: To run with IP-Adapter, use the following example command:
+    1. In the ...
+    2. srun -p rtx3090_slab -n 1 --job-name=test-visconet --kill-on-bad-exit=1 python3 inference.py app_files/default_images/mask.png app_files/default_images/pose.png --prompt="A woman" \
+    --a_prompt="plain studio background" --n_prompt="deformed, glitchy, low-quality" --log_samples --viscon_top_img=app_files/default_images/top.jpg \
+    --viscon_bottom_img=app_files/default_images/bottom.jpg --config="./configs/visconet_ipadapter_v1.yaml" --use_conditioning_image
+    '''
+    

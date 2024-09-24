@@ -10,6 +10,8 @@ from ldm.models.diffusion.ddpm import LatentDiffusion
 from ldm.util import log_txt_as_img, exists, instantiate_from_config
 from ldm.models.diffusion.ddim import DDIMSampler
 
+from cldm.model import load_state_dict
+from adapters.ip_adapter import load_adapter_weights
 
 class ViscoNetLDM(LatentDiffusion):
 
@@ -31,6 +33,33 @@ class ViscoNetLDM(LatentDiffusion):
         # new
         self.control_cond_model = instantiate_from_config(control_cond_config) # refers to CLIP image encoder to encode the style attributes
         
+    # To make a function that loads the checkpoint accordingly, depending on whether an adapter is used
+    def load_from_ckpt(self,
+                       model_ckpt: str,
+                       device:str = "cpu",
+                       adapter_ckpt: str =None):
+        '''
+        To load the model weights from checkpoint files.
+        If IP-Adapter is not used, we can simply load in the state dict of the ViscoNet model.
+        IF IP-Adapter is used,
+            - First load in the state dict of the ViscoNet model but without loading it on the model
+            - Then determine the missing keys that are needed from IP-Adapter checkpoint file
+            - Fill in the missing keys from IP-Adapter
+            - Load the complete set of state dict into the model
+
+        Args:
+            model_ckpt: str, filepath to the model's checkpoint
+            device: str,  device to load model on
+            ip_adapter_ckpt: str, filepath to the adapter's checkpoint 
+        '''
+        
+        visconet_state_dict = load_state_dict(model_ckpt, location=device)
+        if self.cond_stage_img_key:
+            assert adapter_ckpt, "Checkpoint path must be provided."
+            visconet_state_dict = load_adapter_weights(visconet_state_dict, adapter_ckpt_path=adapter_ckpt)
+        self.load_state_dict(visconet_state_dict)
+
+
     # TODO: Possible look into how we need to integrate the conditioning image here
     @torch.no_grad()
     def get_input(self, batch, k, bs=None, *args, **kwargs):
@@ -87,7 +116,7 @@ class ViscoNetLDM(LatentDiffusion):
         cond_mask = torch.cat(cond['c_concat_mask'], 1)
         cond_concat = torch.cat(cond['c_concat'], 1)
         # STEP: Added cond_img (as image prompt for IP-Adapter)
-        if 'c_img' in cond:
+        if 'c_img' in cond.keys():
             cond_img = torch.cat(cond['c_img'], 1)
         # project style images into clip embedding     
         emb_cross = self.control_cond_model(cond_cross)
