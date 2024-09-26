@@ -1,0 +1,16 @@
+model:
+  target: visconet.control_cond_modules.module_main.LocalStyleProjector
+  params:
+    fashion_segmentor_config:
+      target: visconet.control_cond_modules.module_segmentor.FashionSegmentor
+      params:
+        seg_processor: "sayeed99/segformer_b3_clothes"
+        seg_model: "sayeed99/segformer_b3_clothes"
+        ignore_labels:
+          - "Belt"
+          - "Scarf"
+          - "Bag"
+          - "Left-leg"
+          - "Right-leg"
+          - "Left-arm"
+          - "Right-arm"
