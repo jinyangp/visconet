@@ -6,6 +6,7 @@ model:
       params:
         seg_processor: "sayeed99/segformer_b3_clothes"
         seg_model: "sayeed99/segformer_b3_clothes"
+        output_shape: [224, 224]
         ignore_labels:
           - "Belt"
           - "Scarf"

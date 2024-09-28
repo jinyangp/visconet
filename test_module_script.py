@@ -21,4 +21,4 @@ if __name__ == "__main__":
     img = Image.open(img_fp)
     outs = model(img)
 
-    print(outs.shape)
+    print(outs.shape)       
