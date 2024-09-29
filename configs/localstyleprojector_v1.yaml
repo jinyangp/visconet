@@ -15,3 +15,18 @@ model:
           - "Right-leg"
           - "Left-arm"
           - "Right-arm"
+
+    # for CLIP image encoder
+    image_encoder_config:
+      target: visconet.control_cond_modules.module_img_embeddor.CLIPImageEncoder
+      params:
+        encoder_type: "CLIP"
+        encoder_processor_name: "openai/clip-vit-large-patch14"
+        encoder_model_name: "openai/clip-vit-large-patch14"
+    # for DINO image encoder
+    # image_encoder_config:
+    #   target: visconet.control_cond_modules.module_img_embeddor.DINOImageEncoder
+    #   params:
+    #     encoder_type: "DINO"
+    #     encoder_processor_name: "facebook/dinov2-base"
+    #     encoder_model_name: "facebook/dinov2-base"

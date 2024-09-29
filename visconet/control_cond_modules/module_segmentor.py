@@ -11,8 +11,8 @@ from transformers import SegformerImageProcessor, AutoModelForSemanticSegmentati
 class FashionSegmentor(nn.Module):
 
     def __init__(self,
-                 seg_processor,
-                 seg_model,
+                 seg_processor: str,
+                 seg_model: str,
                  output_shape: Tuple[int, int] = (224,224),
                  ignore_labels: List[str] = ["Belt", "Scarf", "Bag", "Left-leg",
                                              "Right-leg", "Left-arm", "Right-arm"],
@@ -23,6 +23,7 @@ class FashionSegmentor(nn.Module):
         
         super().__init__()
         self.model = AutoModelForSemanticSegmentation.from_pretrained(seg_model)    
+        self.model = self.model.eval()
         
         img_size = self.model.config.image_size
         self.processor = SegformerImageProcessor.from_pretrained(seg_processor,
