@@ -1,6 +1,8 @@
 model:
   target: visconet.control_cond_modules.module_main.LocalStyleProjector
   params:
+    num_fashion_attrs: 8
+    uncond_guidance: False
     fashion_segmentor_config:
       target: visconet.control_cond_modules.module_segmentor.FashionSegmentor
       params:
