@@ -92,6 +92,7 @@ def process(prompt, a_prompt, n_prompt, num_samples,
         mask = mask.unsqueeze(0).to(device) # (1, 512, 512)
         # NOTE: Get embeddings of style
         style_emb = encode_style_images(viscon_images)
+        print(style_emb.shape) # NOTE: torch.Size([1, 8, 257, 1024])
 
         # fix me
         # NOTE: Get poses
