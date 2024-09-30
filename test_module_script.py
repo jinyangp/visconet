@@ -20,5 +20,4 @@ if __name__ == "__main__":
     img_fp = os.path.join(os.getcwd(), "app_files", "default_images", "ref.png")
     img = Image.open(img_fp)
     outs = model(img)
-
-    print(outs.shape)       
+    print(outs.shape)
