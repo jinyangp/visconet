@@ -23,6 +23,8 @@ class FashionSegmentor(nn.Module):
         
         super().__init__()
         self.model = AutoModelForSemanticSegmentation.from_pretrained(seg_model)    
+        for param in self.model.parameters():
+            param.requires_grad = False
         self.model = self.model.eval()
         
         img_size = self.model.config.image_size
