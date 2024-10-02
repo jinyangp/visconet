@@ -1,0 +1,34 @@
+model:
+  target: visconet.control_cond_modules.module_main.LocalStyleProjector
+  params:
+    num_fashion_attrs: 8
+    uncond_guidance: False
+    fashion_segmentor_config:
+      target: visconet.control_cond_modules.module_segmentor.FashionSegmentor
+      params:
+        seg_processor: "sayeed99/segformer_b3_clothes"
+        seg_model: "sayeed99/segformer_b3_clothes"
+        output_shape: [224, 224]
+        ignore_labels:
+          - "Belt"
+          - "Scarf"
+          - "Bag"
+          - "Left-leg"
+          - "Right-leg"
+          - "Left-arm"
+          - "Right-arm"
+
+    # for CLIP image encoder
+    image_encoder_config:
+      target: visconet.control_cond_modules.module_img_embeddor.CLIPImageEncoder
+      params:
+        encoder_type: "CLIP"
+        encoder_processor_name: "openai/clip-vit-large-patch14"
+        encoder_model_name: "openai/clip-vit-large-patch14"
+    # for DINO image encoder
+    # image_encoder_config:
+    #   target: visconet.control_cond_modules.module_img_embeddor.DINOImageEncoder
+    #   params:
+    #     encoder_type: "DINO"
+    #     encoder_processor_name: "facebook/dinov2-base"
+    #     encoder_model_name: "facebook/dinov2-base"
