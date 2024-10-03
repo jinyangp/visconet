@@ -2,7 +2,14 @@ import torch
 import torch.nn as nn
 
 from adapters.resampler import Resampler
+
 class Adapter:
+
+    '''
+    # TODO: Do not need this for now unless we are planning to implement IP-Adapter and IP-Adapter plus where inheritance is required.
+    For now, we will only include the ImageProjModel of the IP-Adapter into the pipeline to generate more detailed embeddings.
+    The IP Cross Attention layers can be implemented later.
+    '''
 
     def __init__(self,
                  ckpt_path: str,

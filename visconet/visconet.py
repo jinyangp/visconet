@@ -17,8 +17,8 @@ class ViscoNetLDM(LatentDiffusion):
                  control_crossattn_key, mask_key=None, enable_mask=True, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.control_model = instantiate_from_config(control_stage_config)
-        self.control_key = control_key
-        self.control_crossattn_key = control_crossattn_key
+        self.control_key = control_key # image pose prompt - for openpose
+        self.control_crossattn_key = control_crossattn_key # image pose prompt - for fashion attribute styles
         self.only_mid_control = only_mid_control
         self.control_scales = [1.0] * 13
         self.enable_mask = enable_mask
@@ -30,15 +30,18 @@ class ViscoNetLDM(LatentDiffusion):
 
     @torch.no_grad()
     def get_input(self, batch, k, bs=None, *args, **kwargs):
+        # NOTE: Get latents of image and text embeddings
         x, c_text = super().get_input(batch, self.first_stage_key, *args, **kwargs)
 
+        # NOTE: Get pose
         control = batch[self.control_key]
         if bs is not None:
             control = control[:bs]
         control = control.to(self.device)
         control = einops.rearrange(control, 'b h w c -> b c h w')
         control = control.to(memory_format=torch.contiguous_format).float()
-
+        
+        # NOTE: Start to format a dictionary to give to model
         ret_dict = dict(c_text=[c_text], c_concat=[control])
 
         def format_input(key):
@@ -48,26 +51,29 @@ class ViscoNetLDM(LatentDiffusion):
             val = val.to(memory_format=torch.contiguous_format).float()
             val = val.to(self.device)
             return val
- 
+
+        # TODO: we have to change how we give the model the control_crossattn_key and mask_key. these 2 components are passed from our localstyleprojector
         if self.control_crossattn_key:
             ret_dict['c_crossattn']=[format_input(self.control_crossattn_key)]
 
         if self.mask_key:
             ret_dict['c_concat_mask']=[format_input(self.mask_key)]
 
+        # TODO: we have to change how we give the model the openpose pose here, since previously the pose was already precomputed but not here
+
         return x, ret_dict
 
     def apply_model(self, x_noisy, t, cond, *args, **kwargs):
         assert isinstance(cond, dict)
         diffusion_model = self.model.diffusion_model
-        # c_concat : skeleton [batch, 3, 512, 512]
-        # c_crossattn : text [batch, 77, 1024]
+        # c_concat : skeleton [batch, 3, 512, 512] -> NOTE: the openpose
+        # c_crossattn : text [batch, 77, 1024] -> NOTE: the text embeddings
         cond_txt = torch.cat(cond['c_text'], 1) # remove list
         cond_cross = torch.cat(cond['c_crossattn'], 1) # remove list
-        cond_mask = torch.cat(cond['c_concat_mask'], 1)
-        cond_concat = torch.cat(cond['c_concat'], 1)
+        cond_mask = torch.cat(cond['c_concat_mask'], 1) # TODO: Need to pass in the background mask from our segmentor
+        cond_concat = torch.cat(cond['c_concat'], 1) # the openpose pose
         # project style images into clip embedding     
-        emb_cross = self.control_cond_model(cond_cross)
+        emb_cross = self.control_cond_model(cond_cross) # the style images
         if cond['c_concat'] is None:
             eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=None, only_mid_control=self.only_mid_control)
         else:
@@ -83,7 +89,15 @@ class ViscoNetLDM(LatentDiffusion):
                 else: 
                     return c
                 
+            # Get the list o controls by applying the mask level-wise to each level's output    
             control = [mask_control(c, mask_enable) * scale for c, scale, mask_enable in zip(control, self.control_scales, self.mask_enables)]
+            # NOTE: Run it through the UNET model forward function with the signature
+            # def forward(self, x, timesteps=None, context=None, y=None,**kwargs):
+            # NOTE: We are using the ControlledUnetModel class in the config file which overrides original forward method o 
+            # UNET to use control and only_mid_control arguments
+            
+            # STEP: If IP-Adapter is being used here, we concatenate them along the same dimension and chunk them for processing
+            # concatenate by torch.cat((cond_text,cond_img), dim=1)
             eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=control, only_mid_control=self.only_mid_control)
 
         return eps

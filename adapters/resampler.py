@@ -31,6 +31,7 @@ class FeedForward(nn.Module):
                  dim,
                  mult=4):
         
+        super().__init__()
         dim = dim
         inner_dim = dim*mult
         
@@ -63,6 +64,7 @@ class PerceiverAttention(nn.Module):
         NOTE: The * means that no positional arguments are accepted and dim, dim_head and heads must be passed as keyword arguments
         '''
 
+        super().__init__()
         self.scale = dim_head**-0.5
         self.dim_head = dim_head
         self.heads = heads
@@ -107,7 +109,7 @@ class PerceiverAttention(nn.Module):
         # STEP: Perform attention mechanism
         scale = 1/math.sqrt(math.sqrt(self.dim_head))
         # (batch,heads,seq_len,dim_head) @ (batch,heads,dim_head,seq_len) --> (batch,heads,seq_len,seq_len)
-        weights = (q*scale) @ (k*scale).transpose(-2,-1)
+        weight = (q*scale) @ (k*scale).transpose(-2,-1)
         weight = torch.softmax(weight.float(), dim=-1).type(weight.dtype)
         out = weight @ v
 
@@ -129,7 +131,6 @@ class Resampler(nn.Module):
                 output_dim=1024, # NOTE: Dimension of output embeddings
                 ff_mult=4, # NOTE: Scale factor to multiply inner dim of FF by in the Resampler
                 max_input_seq_len:int=257, # NOTE: Maximum sequence length of input token embeddings
-                max_output_seq_len:int=77,
                 apply_pos_emb: bool=False
     ):
         
@@ -155,23 +156,23 @@ class Resampler(nn.Module):
                 ])
             )
         
-        self.max_output_seq_len = max_output_seq_len
-    
     def forward(self, x):
     
         '''
         Args:
-            x: tensor of shape [bs, num_attrs, 257, 1024] or [bs, num_attrs, 257, 768] depending if CLIP or DINO is used
+            x: tensor of shape [num_attrs, 257, 1024] or [num_attrs, 257, 768] depending if CLIP or DINO is used
             as the image encoder
         Returns:
-            tensor of shape [bs,8*num_queries, output_dim]
+            tensor of shape [num_queries, output_dim]
         '''
 
         # STEP: Add positional embeddings if any
         bs, seq_len, device = x.shape[0], x.shape[1], x.device
 
         if self.pos_emb is not None:
-            pos_emb = self.pos_emb(torch.arange(seq_len), device=device)
+            print(x.shape)
+            pos_emb = self.pos_emb(torch.arange(seq_len, device=device))
+            print(pos_emb.shape)
             x = x + pos_emb
 
         # STEP: Repeat the latents
