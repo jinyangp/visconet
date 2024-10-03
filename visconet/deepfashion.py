@@ -70,19 +70,19 @@ class DeepFashionDataset(Loader):
                  **kwargs):
         super().__init__(**kwargs)
         self.dropout = dropout
-        self.root = Path(image_root)
-        self.image_root = self.root/image_dir
-        self.pose_root = self.root/pose_dir
-        self.style_root = self.root/style_dir
-        self.mask_root = self.root/mask_dir
-        self.map_df = pd.read_csv(map_file)
+        self.root = Path(image_root) # root directory
+        self.image_root = self.root/image_dir # source images
+        self.pose_root = self.root/pose_dir # pose images
+        self.style_root = self.root/style_dir # style images
+        self.mask_root = self.root/mask_dir # mask images
+        self.map_df = pd.read_csv(map_file) 
         self.map_df.set_index('image', inplace=True)
         dfs = [pd.read_csv(f) for f in data_files]
         self.df = pd.concat(dfs, ignore_index=True)
         self.style_postfix = style_postfix
         if sample_ratio:
             self.df = self.df.head(int(sample_ratio*len(self.df)))
-        # transformation
+        # transformation # TODO: Need to reshape source images to 256x256?
         self.image_tform = T.Compose([
             T.ToTensor(),
             T.Lambda(lambda x: rearrange(x * 2. - 1., 'c h w -> h w c'))])
@@ -108,15 +108,18 @@ class DeepFashionDataset(Loader):
     
     def __getitem__(self, index):
         try:
+            # self.df refers to csv with to and from mapping of source images
             row = self.df.iloc[index]
             fname = get_name(row['from'], row['to'])
 
             # source - get fashion styles
-
+            # self.map_df refers to csv with the mappings
+            # find the index of that source image in self.map_df
             source = self.map_df.loc[row['from']]
             src_path = str(self.image_root/source.name)
             source_image = self.image_tform(Image.open(src_path))
-          
+
+            # get the image where we want to get the styles from
             styles_path = source['styles']
             if styles_path == np.nan:
                 return self.skip_sample(index)
@@ -124,6 +127,8 @@ class DeepFashionDataset(Loader):
             full_styles_path = self.style_root/source['styles']
 
             style_embeddings = []
+            # load the styles from an embedding file? else we give it a zero vector of shape [1,768]
+            # TODO: We get this from our image segmentor
             for style_name in self.style_names:
                 f_path = full_styles_path/(f'{style_name}'+self.style_postfix+'.p')
                 if f_path.exists():
@@ -141,12 +146,16 @@ class DeepFashionDataset(Loader):
             target_image = self.image_tform(Image.open(target_path))
 
             ## pose
+            # TODO: We need to get the pose image too via HF
             target_path = str(self.pose_root/target.name)
             pose_image = self.skeleton_tform(Image.open(target_path))
 
             prompt = 'a person.'
+            # TODO: We do not have files of the mask - Need to get it from our ImageSegmentor
             mask = T.ToTensor()(Image.open(str(self.mask_root/target.name).replace('.jpg','_mask.png')))
             
+            # TODO: Modify what is returned here
+            # Previusly this,
             return dict(jpg=target_image, 
                         txt=prompt, 
                         hint=pose_image,
@@ -154,6 +163,16 @@ class DeepFashionDataset(Loader):
                         human_mask=mask,
                         src_img=source_image,
                         fname=fname)
+            # Now, we just need:
+            '''
+            return dict(jpg=target_image, 
+                        txt=prompt, 
+                        src_img=source_image,
+                        # hint=pose_image, (computed from HF in real time)
+                        # styles=styles, (computed from own module in real time)
+                        # human_mask=mask, (coputed from own module in real time)
+                        fname=fname)
+            '''
         
         except Exception as e:            
             print(f"Skipping index {index}", e)

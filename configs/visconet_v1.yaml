@@ -120,8 +120,8 @@ dataset:
       style_postfix: _hidden
       mask_dir: smpl_256
       data_files:
-        - data/deepfashion/pairs-train-all.csv
-        - data/deepfashion/solo-train-all.csv
+        - data/deepfashion/pairs-train-all.csv # to and from are different
+        - data/deepfashion/solo-train-all.csv # to and from are the same
       map_file: data/deepfashion/deepfashion_map.csv
       style_emb_shape:
         - 257
