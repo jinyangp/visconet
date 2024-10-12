@@ -16,8 +16,16 @@ if __name__ == "__main__":
     
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = model.to(device)
-    
-    img_fp = os.path.join(os.getcwd(), "app_files", "default_images", "ref.png")
-    img = Image.open(img_fp)
-    outs = model(img)
+    # to run with an already segmented image
+    # outs = model("app_files/default_images",
+    #              "fashionWOMENBlouses_Shirtsid0000047902_4full.jpg",
+    #              seg_img_fp="WOMEN-Blouses_Shirts-id_00000479-02_4_full_segm.png",
+    #              output_dir="outputs/segmentation-test-3"
+    #              )
+    # to run without an already segmented image
+    outs = model("app_files/default_images",
+                 "fashionWOMENBlouses_Shirtsid0000047902_4full.jpg",
+                #  seg_img_fp="WOMEN-Blouses_Shirts-id_00000479-02_4_full_segm.png",
+                 output_dir="outputs/segmentation-test-without-segmap"
+                 )
     print(outs.shape)

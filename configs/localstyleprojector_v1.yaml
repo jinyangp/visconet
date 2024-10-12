@@ -1,14 +1,27 @@
 model:
   target: visconet.control_cond_modules.module_main.LocalStyleProjector
   params:
-    num_fashion_attrs: 8
+    num_fashion_attrs: 5 # [face, hair, pants, upper clothes, shoes]
     uncond_guidance: True
+    # image_height: 768 # 512 to align with image dimensions later on
+    # image_width: 768
+
+    # NOTE: To segment background and foreground first
+    human_segmentor_config:
+      target: visconet.control_cond_modules.module_human_segmentor.HumanSegmentor
+      params:
+        model_name: "resnet_101"
+        image_height: 768 # NOTE: found that larger images tend to be segmented by FashionSegmentor
+        image_width: 768 # NOTE: found that larger images tend to be segmented by FashionSegmentor
+        num_classes: 21
+
     # NOTE: To get fashion attributes from source image by segmenting
     fashion_segmentor_config:
-      target: visconet.control_cond_modules.module_segmentor.FashionSegmentor
+      target: visconet.control_cond_modules.module_fashion_segmentor.FashionSegmentor
       params:
-        seg_processor: "sayeed99/segformer_b3_clothes"
-        seg_model: "sayeed99/segformer_b3_clothes"
+        seg_processor: "mattmdjaga/segformer_b2_clothes" # "sayeed99/segformer_b3_clothes"
+        seg_model: "mattmdjaga/segformer_b2_clothes" # "sayeed99/segformer_b3_clothes"
+        valid_threshold: 0.002
         output_shape: [224, 224]
         ignore_labels:
           - "Belt"
@@ -18,6 +31,23 @@ model:
           - "Right-leg"
           - "Left-arm"
           - "Right-arm"
+          - "Background"
+          - "Sunglasses"
+          - "Hat"
+        target_labels:
+          - "Face"
+          - "Hair"
+          - "Pants"
+          - "Upper-clothes"
+          - "Left-shoe"
+          - "Right-shoe"
+        default_seg_map_labels:
+          - 1: "top"
+          - 5: "pants"
+          - 11: "footwear"
+          - 13: "hair"
+          - 14: "face"
+
     # NOTE:  To get image embeddings from fashion attributes
     # for CLIP image encoder
     image_encoder_config:
@@ -33,6 +63,7 @@ model:
     #     encoder_type: "DINO"
     #     encoder_processor_name: "facebook/dinov2-base"
     #     encoder_model_name: "facebook/dinov2-base"
+
     # NOTE: To resample image embeddings to get richer embeddings
     resampler_config:
       target: adapters.resampler.Resampler
