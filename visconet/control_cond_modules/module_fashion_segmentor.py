@@ -243,7 +243,7 @@ class FashionSegmentor(nn.Module):
 
     def forward(self,
                 img_tensor,
-                seg_img_fp:str=None,
+                seg_img: Image.Image,
                 output_dir:str=None):
         
         org_height, org_width = img_tensor.shape[1], img_tensor.shape[2]
@@ -252,8 +252,8 @@ class FashionSegmentor(nn.Module):
         # torch.Size([768, 768]) torch.Size([3, 768, 768])
         
         # STEP: If the default segmented fashion attributes are provided, we can use the segmentation output from there
-        if seg_img_fp:
-            seg_img_tensor = torch.tensor(np.array(Image.open(seg_img_fp)))
+        if seg_img:
+            seg_img_tensor = torch.tensor(np.array(seg_img))
             seg_img_tensor = resize_img_tensor(seg_img_tensor, org_height, org_width)
             
             # resizing using interpolation requires us to unsqueeze till 4 dimensions so we need to squeeze it back to 2 dimensions

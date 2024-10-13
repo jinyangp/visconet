@@ -3,8 +3,8 @@ model:
   params:
     num_fashion_attrs: 5 # [face, hair, pants, upper clothes, shoes]
     uncond_guidance: True
-    # image_height: 768 # 512 to align with image dimensions later on
-    # image_width: 768
+    output_height: 512 # to match output dimensions of visconet
+    output_width: 512
 
     # NOTE: To segment background and foreground first
     human_segmentor_config:

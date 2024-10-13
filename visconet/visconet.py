@@ -27,13 +27,18 @@ class ViscoNetLDM(LatentDiffusion):
         self.ddim_sampler = DDIMSampler(self)
         # new
         self.control_cond_model = instantiate_from_config(control_cond_config)
+    
+    '''
+    # NOTE: get_input() and apply_model() are used behind the scenes in the training_step which is a necessary step needed to be implemented to use Pytorch Lightning
+    # .fit() function
+    '''
 
     @torch.no_grad()
     def get_input(self, batch, k, bs=None, *args, **kwargs):
-        # NOTE: Get latents of image and text embeddings
+        # STEP: Get latents of image and text embeddings
         x, c_text = super().get_input(batch, self.first_stage_key, *args, **kwargs)
 
-        # NOTE: Get pose
+        # STEP: Get pose
         control = batch[self.control_key]
         if bs is not None:
             control = control[:bs]
@@ -41,7 +46,7 @@ class ViscoNetLDM(LatentDiffusion):
         control = einops.rearrange(control, 'b h w c -> b c h w')
         control = control.to(memory_format=torch.contiguous_format).float()
         
-        # NOTE: Start to format a dictionary to give to model
+        # STEP: Start to format a dictionary to give to model
         ret_dict = dict(c_text=[c_text], c_concat=[control])
 
         def format_input(key):
@@ -51,15 +56,41 @@ class ViscoNetLDM(LatentDiffusion):
             val = val.to(memory_format=torch.contiguous_format).float()
             val = val.to(self.device)
             return val
+        
+        # STEP: Use the src_img key from our batch to get the style attrs and human_mask
+        src_img_pils = batch["src_img_pil"]
+        seg_img_pils = batch["seg_img_pil"]
+        if bs is not None:
+            src_img_pils = src_img_pils[:bs]
+            seg_img_pils = seg_img_pils[:bs]
 
-        # TODO: we have to change how we give the model the control_crossattn_key and mask_key. these 2 components are passed from our localstyleprojector
+        # STEP: Run source image pil through our localstyleprojector module
+        src_pils = zip(src_img_pils, seg_img_pils)
+        style_attrs = []
+        human_masks = []
+        for src_img, seg_img in src_pils:
+            # TODO: Integrate our localstyleprojector module into visconet
+            dct = self.local_style_projector(src_img, seg_img)
+            style_attr_embeds = dct["style_attr_embeds"]
+            human_mask = dct["human_mask"]
+
+            style_attrs.append(style_attr_embeds)
+            human_masks.append(human_mask)
+
         if self.control_crossattn_key:
-            ret_dict['c_crossattn']=[format_input(self.control_crossattn_key)]
-
+            ret_dict["c_crossattn"] = [format_input(style_attrs)]
+        
         if self.mask_key:
-            ret_dict['c_concat_mask']=[format_input(self.mask_key)]
+            ret_dict["c_concat_mask"] = [format_input(human_masks)]
 
-        # TODO: we have to change how we give the model the openpose pose here, since previously the pose was already precomputed but not here
+        # NOTE: Old way
+        # -------
+        # if self.control_crossattn_key:
+        #     ret_dict['c_crossattn']=[format_input(self.control_crossattn_key)]
+
+        # if self.mask_key:
+        #     ret_dict['c_concat_mask']=[format_input(self.mask_key)]
+        # -------
 
         return x, ret_dict
 
@@ -70,10 +101,11 @@ class ViscoNetLDM(LatentDiffusion):
         # c_crossattn : text [batch, 77, 1024] -> NOTE: the text embeddings
         cond_txt = torch.cat(cond['c_text'], 1) # remove list
         cond_cross = torch.cat(cond['c_crossattn'], 1) # remove list
-        cond_mask = torch.cat(cond['c_concat_mask'], 1) # TODO: Need to pass in the background mask from our segmentor
+        cond_mask = torch.cat(cond['c_concat_mask'], 1)
         cond_concat = torch.cat(cond['c_concat'], 1) # the openpose pose
         # project style images into clip embedding     
         emb_cross = self.control_cond_model(cond_cross) # the style images
+
         if cond['c_concat'] is None:
             eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=None, only_mid_control=self.only_mid_control)
         else:

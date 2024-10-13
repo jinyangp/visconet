@@ -15,6 +15,7 @@ if __name__ == "__main__":
     model = create_model(config_file).cpu()
     
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    print("running on device:", device)
     model = model.to(device)
     # to run with an already segmented image
     # outs = model("app_files/default_images",
@@ -25,7 +26,11 @@ if __name__ == "__main__":
     # to run without an already segmented image
     outs = model("app_files/default_images",
                  "fashionWOMENBlouses_Shirtsid0000047902_4full.jpg",
-                #  seg_img_fp="WOMEN-Blouses_Shirts-id_00000479-02_4_full_segm.png",
-                 output_dir="outputs/segmentation-test-without-segmap"
+                 seg_img_fp="WOMEN-Blouses_Shirts-id_00000479-02_4_full_segm.png",
+                 output_dir="outputs/segmentation-test-with-segmap"
                  )
-    print(outs.shape)
+    
+    style_attrs = outs["style_attr_embeds"]
+    human_mask = outs["human_mask"]
+    
+    print(style_attrs.shape, human_mask.shape)

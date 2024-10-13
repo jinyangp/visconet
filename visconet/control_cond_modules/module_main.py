@@ -9,19 +9,20 @@ from typing import Union, List
 from einops import rearrange
 
 from ldm.util import instantiate_from_config
+from visconet.control_cond_modules.util import resize_img_tensor
 
 class LocalStyleProjector(nn.Module):
 
     def __init__(self,
-                 human_segmentor_config,
-                 fashion_segmentor_config,
-                 image_encoder_config,
-                 resampler_config,
-                 num_fashion_attrs:int=5,
-                 uncond_guidance:bool=True,
-                #  image_height:int=768, # 512 to align with image dimensions later on
-                #  image_width:int=768
-                 ):
+                human_segmentor_config,
+                fashion_segmentor_config,
+                image_encoder_config,
+                resampler_config,
+                num_fashion_attrs:int=5,
+                uncond_guidance:bool=True,
+                output_height:int=512, # to match output dimensions of visconet
+                output_width:int=512
+                ):
         '''
         This class contains the following blocks:
         1. FashionSegmentor: Takes in a fashion image and returns [N, 3, img_height, img_width]
@@ -38,14 +39,12 @@ class LocalStyleProjector(nn.Module):
         self.num_fashion_attrs = num_fashion_attrs
         self.uncond_guidance = uncond_guidance
         
-        # self.image_height = image_height
-        # self.image_width = image_width
-        # self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.output_height = output_height
+        self.output_width = output_width
 
     def forward(self,
-                data_root_path: str,
-                source_img_fp: str,
-                seg_img_fp: str=None,
+                source_img: Image.Image,
+                seg_img: Image.Image,
                 output_dir: str=None):
 
         '''
@@ -66,9 +65,6 @@ class LocalStyleProjector(nn.Module):
                 resampled_style_attrs_embed of shape [num_queries*num_fashion_attrs, emb_dim]
         '''
 
-        source_img_fp = os.path.join(os.getcwd(), data_root_path, source_img_fp)
-        source_img = Image.open(source_img_fp)
-
         # STEP: Segment into background and foreground
         human_img_tensor, human_mask = self.human_segmentor(source_img, output_dir=output_dir)
         print(f'Segmented human image: {human_img_tensor.shape}')
@@ -77,9 +73,8 @@ class LocalStyleProjector(nn.Module):
         # STEP: Segment the source image for fashion attributes
         # output_shape: [num_detected_attrs, 3, 224, 224] where 0 <= num_detected_attrs <= num_fashion_attrs
         # if we already have the segmentation ap for fasihon attributes,
-        if seg_img_fp and os.path.exists(os.path.join(os.getcwd(),data_root_path, seg_img_fp)):
-            seg_img_fp = os.path.join(os.getcwd(),data_root_path, seg_img_fp)
-            style_attrs = self.fashion_segmentor(human_img_tensor, seg_img_fp=seg_img_fp, output_dir=output_dir)
+        if seg_img:
+            style_attrs = self.fashion_segmentor(human_img_tensor, seg_img=seg_img, output_dir=output_dir)
         # else, if we need to manually segment,
         else:
             style_attrs = self.fashion_segmentor(human_img_tensor, output_dir=output_dir)
@@ -122,5 +117,14 @@ class LocalStyleProjector(nn.Module):
         print(f'Resampled Encoded style attrs shape: {resampled_style_attrs_embed.shape}')
         print(f'Resampled Unconditional attrs embed shape: {resampled_uncond_attrs_embed.shape}')
 
-        # TODO: Return a dictionary instead so we can return the mask as well
-        return resampled_style_attrs_embed
+        # STEP: Reshape human mask to match input shape of visconet
+        # Here, resampled_style_attrs_embed shape: [num_queries*num_style_attrs, 1024]
+        # Here, human_mask: [1, 768, 768] -> [512, 512]
+        human_mask = human_mask.unsqueeze(0)
+        human_mask = resize_img_tensor(human_mask, self.output_height, self.output_width)
+        human_mask = human_mask.squeeze(0).squeeze(0)
+
+        return {
+            "style_attr_embeds": resampled_style_attrs_embed,
+            "human_mask": human_mask
+        }
