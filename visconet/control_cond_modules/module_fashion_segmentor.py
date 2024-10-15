@@ -15,16 +15,16 @@ from visconet.control_cond_modules.util import resize_img_tensor
 class FashionSegmentor(nn.Module):
 
     def __init__(self,
-                 seg_processor: str,
-                 seg_model: str,
-                 valid_threshold: float = 0.002,
-                 output_shape: Tuple[int, int] = (224,224),
-                 ignore_labels: List[str] = ["Belt", "Scarf", "Bag", "Left-leg",
+                seg_processor: str,
+                seg_model: str,
+                valid_threshold: float = 0.002,
+                output_shape: Tuple[int, int] = (224,224),
+                ignore_labels: List[str] = ["Belt", "Scarf", "Bag", "Left-leg",
                                              "Right-leg", "Left-arm", "Right-arm",
                                              "Background", "Sunglasses"],
-                 target_labels: List[str] = ["Face", "Hair", "Pants", "Upper-clothes",
+                target_labels: List[str] = ["Face", "Hair", "Pants", "Upper-clothes",
                                             "Left-shoe", "Right-shoe"],
-                 default_seg_map_id2label = {
+                default_seg_map_id2labels = {
                                            1: "top",
                                            5: "pants",
                                            11: "footwear",
@@ -48,15 +48,15 @@ class FashionSegmentor(nn.Module):
         # model = AutoModelForSemanticSegmentation.from_pretrained("mattmdjaga/segformer_b2_clothes")
         
         super().__init__()
-        self.model = AutoModelForSemanticSegmentation.from_pretrained(seg_model)    
-        for param in self.model.parameters():
-            param.requires_grad = False
-        self.model = self.model.eval()
-        
+        self.model = AutoModelForSemanticSegmentation.from_pretrained(seg_model)            
         img_size = self.model.config.image_size
         self.processor = SegformerImageProcessor.from_pretrained(seg_processor,
                                                                  do_resize=False
                                                                  )
+        
+        for param in self.model.parameters():
+            param.requires_grad = False
+        self.model = self.model.eval()
         self.valid_threshold = valid_threshold
 
         self.img_size = img_size # 224,224
@@ -69,7 +69,8 @@ class FashionSegmentor(nn.Module):
         self.model_ids = [k for k in self.model_id2label.keys()]
         self.model_target_ids = [k for k,v in self.model_id2label.items() if v in self.model_target_labels] # [2, 6, 9, 10, 11]
 
-        self.default_seg_map_id2label = default_seg_map_id2label
+        self.default_seg_map_id2label = default_seg_map_id2labels
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
     def _reverse_normalise(self, normalised_tensor, mask):
         '''
@@ -190,7 +191,7 @@ class FashionSegmentor(nn.Module):
             if _id.item() not in target_ids:
                 continue
 
-            print(f"Found id: {_id.item()} referring to class {target_label_dict[_id.item()]}") # TODO: Delete later, for debuggging
+            # print(f"Found id: {_id.item()} referring to class {target_label_dict[_id.item()]}") # TODO: Delete later, for debuggging
 
             # STEP: Get mask for this particular key
             mask = (seg_img_tensor == _id).to(torch.uint8)
@@ -202,11 +203,11 @@ class FashionSegmentor(nn.Module):
             if use_seg_model:
                 masked_img_org_vals = self._reverse_normalise(masked_img_tensor, mask)
                 masked_img_org_vals = torch.squeeze(masked_img_org_vals, 0)
-                masked_img_org_vals_np = masked_img_org_vals.permute(1,2,0).numpy()
+                masked_img_org_vals_np = masked_img_org_vals.permute(1,2,0).cpu().numpy()
                 masked_img_org_vals_np = (masked_img_org_vals_np * 255).astype(np.uint8)
 
             else:
-                masked_img_org_vals_np = masked_img_tensor.permute(1,2,0).numpy().astype(np.uint8)
+                masked_img_org_vals_np = masked_img_tensor.permute(1,2,0).cpu().numpy().astype(np.uint8)
 
             # STEP: Crop, Resize and Centralise attributes - Processed np array
             masked_img_org_vals_np = self._crop_and_recentre(masked_img_org_vals_np,
@@ -215,21 +216,22 @@ class FashionSegmentor(nn.Module):
             # STEP: Only check for validity if we are using the HF segmentation model and add this attribute to output array if the number of pixels is above valid threshold
             if not use_seg_model or self.is_attr_valid(masked_img_org_vals_np):
 
-                print(f"Found and valid id: {_id.item()} referring to class {target_label_dict[_id.item()]}") # TODO: Delete later, for debuggging
+                # print(f"Found and valid id: {_id.item()} referring to class {target_label_dict[_id.item()]}") # TODO: Delete later, for debuggging
                 
                 # STEP: If output_dir provided, save the processed np array as image
-                if output_dir:
+                # NOTE: This section saves the segmented image to disk. Commented out for now.
+                # if output_dir:
                         
-                    full_output_dir = os.path.join(os.getcwd(), output_dir)
-                    if not os.path.exists(full_output_dir):
-                        os.makedirs(full_output_dir)
+                #     full_output_dir = os.path.join(os.getcwd(), output_dir)
+                #     if not os.path.exists(full_output_dir):
+                #         os.makedirs(full_output_dir)
                         
-                    label_name = target_label_dict[_id.item()]
-                    filename = f'{label_name}-{_id.item()}.png'
-                    full_fp = os.path.join(full_output_dir, filename)
+                #     label_name = target_label_dict[_id.item()]
+                #     filename = f'{label_name}-{_id.item()}.png' 
+                #     full_fp = os.path.join(full_output_dir, filename)
 
-                    masked_img_pil = Image.fromarray(masked_img_org_vals_np)
-                    masked_img_pil.save(full_fp)
+                #     masked_img_pil = Image.fromarray(masked_img_org_vals_np)
+                #     masked_img_pil.save(full_fp)
 
                 # STEP: Append the processed np array converted to a tensor to res array
                 masked_img_org_vals_tensor = torch.from_numpy(masked_img_org_vals_np)
@@ -239,12 +241,13 @@ class FashionSegmentor(nn.Module):
                 masked_imgs.append(masked_img_org_vals_tensor)
 
         # STEP: Concate all tensors in the res arr and return
-        return torch.cat(masked_imgs, dim=0)
+        return torch.cat(masked_imgs, dim=0).to(self.device)
 
+    @torch.no_grad()
     def forward(self,
                 img_tensor,
-                seg_img: Image.Image,
-                output_dir:str=None):
+                seg_img: Image.Image=None,
+                output_dir: str=None):
         
         org_height, org_width = img_tensor.shape[1], img_tensor.shape[2]
 
@@ -253,7 +256,7 @@ class FashionSegmentor(nn.Module):
         
         # STEP: If the default segmented fashion attributes are provided, we can use the segmentation output from there
         if seg_img:
-            seg_img_tensor = torch.tensor(np.array(seg_img))
+            seg_img_tensor = torch.tensor(np.array(seg_img)).to(self.device)
             seg_img_tensor = resize_img_tensor(seg_img_tensor, org_height, org_width)
             
             # resizing using interpolation requires us to unsqueeze till 4 dimensions so we need to squeeze it back to 2 dimensions
@@ -267,7 +270,7 @@ class FashionSegmentor(nn.Module):
                                            output_dir=output_dir)    
         # STEP: Else if not provided, we have to segment the image with the model from HF
         else:
-            org_img = self.processor(images=img_tensor, return_tensors="pt") 
+            org_img = self.processor(images=img_tensor, return_tensors="pt").to(self.device) 
             org_img_tensor = org_img["pixel_values"] # [1,3,768,768]
             out = self.model(**org_img)
             logits = out.logits

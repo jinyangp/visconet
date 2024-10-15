@@ -6,16 +6,16 @@ from torch import nn
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader
 from pytorch_lightning.callbacks import ModelCheckpoint, Callback, LearningRateMonitor
-from visconet.deepfashion import DeepFashionDataset
+from visconet.deepfashion import DeepFashionDataset, custom_collate_fn
 from cldm.logger import ImageLogger
 from cldm.model import create_model, load_state_dict
 from ldm.modules.attention import CrossAttention
 from omegaconf import OmegaConf
 from ldm.util import instantiate_from_config
 
-DEFAULT_CKPT = './models/control_sd21_ini.ckpt'
+DEFAULT_CKPT = './models/visconet_v1.pth'
 
-class SetupCallback(Callback):
+class SetupCallback(Callback):  
     def __init__(self, logdir, ckptdir, cfgdir, config):
         super().__init__()
         self.logdir = logdir
@@ -89,8 +89,8 @@ def main(args):
     # data
     dataset = instantiate_from_config(config.dataset.train)
     val_dataset = instantiate_from_config(config.dataset.val)
-    dataloader = DataLoader(dataset, num_workers=num_workers, batch_size=batch_size, shuffle=True)
-    val_dataloader = DataLoader(val_dataset, num_workers=num_workers, batch_size=batch_size, shuffle=False)
+    dataloader = DataLoader(dataset, num_workers=num_workers, batch_size=batch_size, collate_fn=custom_collate_fn, shuffle=True)
+    val_dataloader = DataLoader(val_dataset, num_workers=num_workers, batch_size=batch_size, collate_fn=custom_collate_fn, shuffle=False)
     
     # callbacks
     logger = ImageLogger(batch_frequency=logger_freq)
@@ -100,14 +100,15 @@ def main(args):
                             every_n_train_steps=8000, 
                             monitor='val/loss_simple_ema')
     lr_monitor_cb = LearningRateMonitor(logging_interval='step')
-    callbacks = [logger, save_cb, setup_cb, lr_monitor_cb]
+    callbacks = [logger, save_cb, setup_cb, lr_monitor_cb]  
 
     strategy = "ddp" if num_gpus > 1 else "auto"
     trainer = pl.Trainer(accelerator="gpu", devices=gpus, strategy=strategy,
                         precision=32, callbacks=callbacks, 
                         accumulate_grad_batches=4,
                         default_root_dir=logdir,
-                        val_check_interval=8000,
+                        val_check_interval=100, # NOTE: We decrease to 100 here since we are testing on a 1,000 image dataset
+                        # val_check_interval=8000,
                         #check_val_every_n_epoch=1,
                         num_sanity_val_steps=1,
                         max_epochs=max_epochs)

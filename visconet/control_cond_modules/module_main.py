@@ -42,6 +42,8 @@ class LocalStyleProjector(nn.Module):
         self.output_height = output_height
         self.output_width = output_width
 
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        
     def forward(self,
                 source_img: Image.Image,
                 seg_img: Image.Image,
@@ -67,8 +69,6 @@ class LocalStyleProjector(nn.Module):
 
         # STEP: Segment into background and foreground
         human_img_tensor, human_mask = self.human_segmentor(source_img, output_dir=output_dir)
-        print(f'Segmented human image: {human_img_tensor.shape}')
-        print(f'Segmented human mask: {human_mask.shape}')
 
         # STEP: Segment the source image for fashion attributes
         # output_shape: [num_detected_attrs, 3, 224, 224] where 0 <= num_detected_attrs <= num_fashion_attrs
@@ -79,43 +79,46 @@ class LocalStyleProjector(nn.Module):
         else:
             style_attrs = self.fashion_segmentor(human_img_tensor, output_dir=output_dir)
 
+        # print(f'Segmented style attrs shape: {style_attrs.shape}')
+        
         # output_shape: [num_fashion_attrs, 3, 224, 224]
         num_attrs = style_attrs.shape[0]
         num_null_attrs = self.num_fashion_attrs - num_attrs
         # if we need to pad with 0 matrices
         if num_null_attrs > 0:
             _, ch, height, width = style_attrs.shape
-            null_attrs = torch.zeros((num_null_attrs, ch, height, width), dtype=style_attrs.dtype)
-            style_attrs = torch.cat([style_attrs, null_attrs], dim=0)
-        # if we need to remove some fashion attributes
+            null_attrs = torch.zeros((num_null_attrs, ch, height, width), dtype=style_attrs.dtype).to(self.device)
+            style_attrs = torch.cat([style_attrs, null_attrs], dim=0)   
+        # if we need to remove some fashion attributes  
         elif num_null_attrs < 0:
             style_attrs = style_attrs[:self.num_fashion_attrs,:,:,:]
-        print(f'Segmented style attrs shape: {style_attrs.shape}')
 
         # STEP: Encode the fashion attributes
         # output shape: [num_fashion_attrs, 257, 1024] if using CLIP embeddor
         # output shape: [num_fashion_attrs, 257, 768] if using DINO embeddor
         # NOTE: If uncond_guidance is used,
+        # TODO: At the moment, not using uncond_attrs
         if self.uncond_guidance:
-            uncond_attrs = torch.zeros_like(style_attrs, dtype=style_attrs.dtype)
+            uncond_attrs = torch.zeros_like(style_attrs, dtype=style_attrs.dtype).to(self.device)
             uncond_attrs_embed = self.image_encoder(uncond_attrs)
 
-        style_attrs_embed = self.image_encoder(style_attrs)
-        print(f'Encoded style attrs shape: {style_attrs_embed.shape}')
-        print(f'Unconditional attrs embed shape: {uncond_attrs_embed.shape}')
+        style_attrs_embed = self.image_encoder(style_attrs) 
+        # print(f'Encoded style attrs shape: {style_attrs_embed.shape}')
+        # print(f'Unconditional attrs embed shape: {uncond_attrs_embed.shape}')
 
         # STEP: Resample the embeddings
         # output shape: [num_fashion_attrs*num_queries, 1024]
         # [num_fashion_attrs, num_queries, 1024]
         resampled_style_attrs_embed = self.resampler(style_attrs_embed)
+
         # [num_fashion_attrs, num_queries, 1024] -> [num_fashion_attrs*num_queries, 1024]
         resampled_style_attrs_embed = rearrange(resampled_style_attrs_embed, 'b n d -> (b n) d')
 
         resampled_uncond_attrs_embed = self.resampler(uncond_attrs_embed)
         resampled_uncond_attrs_embed = rearrange(resampled_uncond_attrs_embed, 'b n d -> (b n) d')
 
-        print(f'Resampled Encoded style attrs shape: {resampled_style_attrs_embed.shape}')
-        print(f'Resampled Unconditional attrs embed shape: {resampled_uncond_attrs_embed.shape}')
+        # print(f'Resampled Encoded style attrs shape: {resampled_style_attrs_embed.shape}')
+        # print(f'Resampled Unconditional attrs embed shape: {resampled_uncond_attrs_embed.shape}')
 
         # STEP: Reshape human mask to match input shape of visconet
         # Here, resampled_style_attrs_embed shape: [num_queries*num_style_attrs, 1024]
@@ -127,4 +130,4 @@ class LocalStyleProjector(nn.Module):
         return {
             "style_attr_embeds": resampled_style_attrs_embed,
             "human_mask": human_mask
-        }
+        }   

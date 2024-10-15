@@ -75,7 +75,7 @@ model:
               - "Upper-clothes"
               - "Left-shoe"
               - "Right-shoe"
-            default_seg_map_labels:
+            default_seg_map_id2labels:
               - 1: "top"
               - 5: "pants"
               - 11: "footwear"
@@ -189,10 +189,10 @@ dataset:
       image_root: "./data/datasets/deepfashion"
       image_dir: imgs
       style_dir: seg_imgs
-      map_file: "./data/deepfashion/deepfashion_map.csv" # TODO: to add styles columns
+      map_file: "./data/deepfashion/deepfashion_map.csv"
       data_files:
-        - "./data/deepfashion/pairs-train-all.csv" # to and from are different
-        - "./data/deepfashion/solo-train-all.csv" # to and from are the same
+        - "./data/deepfashion/pairs-train-all_sample.csv" # to and from are different
+        - "./data/deepfashion/solo-train-all_sample.csv" # to and from are the same
 
   val:
     target: visconet.deepfashion.DeepFashionDataset
@@ -200,6 +200,6 @@ dataset:
       image_root: "./data/datasets/deepfashion"
       image_dir: imgs
       style_dir: seg_imgs
-      map_file: "./data/deepfashion/deepfashion_map.csv" # TODO: to add styles columns
+      map_file: "./data/deepfashion/deepfashion_map.csv"
       data_files:
-        - "./data/deepfashion/pairs-test-all.csv" # to and from are different
+        - "./data/deepfashion/pairs-test-all_sample.csv" # to and from are different

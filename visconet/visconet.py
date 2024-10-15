@@ -3,7 +3,7 @@ import einops
 import torch
 from torchvision import transforms as T
 from pathlib import Path
-
+from PIL import Image
 from einops import rearrange, repeat
 from torchvision.utils import make_grid
 from ldm.models.diffusion.ddpm import LatentDiffusion
@@ -69,8 +69,7 @@ class ViscoNetLDM(LatentDiffusion):
         style_attrs = []
         human_masks = []
         for src_img, seg_img in src_pils:
-            # TODO: Integrate our localstyleprojector module into visconet
-            dct = self.local_style_projector(src_img, seg_img)
+            dct = self.control_cond_model(src_img, seg_img)
             style_attr_embeds = dct["style_attr_embeds"]
             human_mask = dct["human_mask"]
 
@@ -78,10 +77,10 @@ class ViscoNetLDM(LatentDiffusion):
             human_masks.append(human_mask)
 
         if self.control_crossattn_key:
-            ret_dict["c_crossattn"] = [format_input(style_attrs)]
+            ret_dict["c_crossattn"] = style_attrs
         
         if self.mask_key:
-            ret_dict["c_concat_mask"] = [format_input(human_masks)]
+            ret_dict["c_concat_mask"] = human_masks
 
         # NOTE: Old way
         # -------
@@ -100,11 +99,9 @@ class ViscoNetLDM(LatentDiffusion):
         # c_concat : skeleton [batch, 3, 512, 512] -> NOTE: the openpose
         # c_crossattn : text [batch, 77, 1024] -> NOTE: the text embeddings
         cond_txt = torch.cat(cond['c_text'], 1) # remove list
-        cond_cross = torch.cat(cond['c_crossattn'], 1) # remove list
-        cond_mask = torch.cat(cond['c_concat_mask'], 1)
+        cond_cross = torch.stack(cond['c_crossattn'], dim=0) # remove list
+        cond_mask = torch.stack(cond['c_concat_mask'], dim=0) # remove list
         cond_concat = torch.cat(cond['c_concat'], 1) # the openpose pose
-        # project style images into clip embedding     
-        emb_cross = self.control_cond_model(cond_cross) # the style images
 
         if cond['c_concat'] is None:
             eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=None, only_mid_control=self.only_mid_control)
@@ -112,15 +109,17 @@ class ViscoNetLDM(LatentDiffusion):
             control = self.control_model(x=x_noisy, 
                                          hint=cond_concat,
                                          timesteps=t, 
-                                         context=emb_cross)
+                                         context=cond_cross)
 
             def mask_control(c, mask_enable):
+                # shapes --> cond_mask: [2,512,512], resized_mask shape: [2,64,64], c aka controlnet output shape: [2, 320, 64, 64] 
                 if mask_enable:
                     resized_mask = T.Resize(list(c.shape[-2:]), T.InterpolationMode.NEAREST)(cond_mask)
+                    resized_mask = resized_mask.unsqueeze(1)
                     return c * resized_mask
-                else: 
+                else:
                     return c
-                
+            
             # Get the list o controls by applying the mask level-wise to each level's output    
             control = [mask_control(c, mask_enable) * scale for c, scale, mask_enable in zip(control, self.control_scales, self.mask_enables)]
             # NOTE: Run it through the UNET model forward function with the signature

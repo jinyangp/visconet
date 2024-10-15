@@ -1,15 +1,15 @@
 import os
 
-from controlnet_aux import OpenPoseDetector # TODO: pip install controlnet-aux
+from controlnet_aux import OpenposeDetector
 from PIL import Image
 
-def get_openpose_annotations(openpose_model_path: str,
-                             img: Image.Image,
+def get_openpose_annotations(img: Image.Image,
+                             openpose_model_path: str="lllyasviel/ControlNet",
                              output_dir: str = None,
                              img_filename:str = None
                              ):
     
-    openpose = OpenPoseDetector.from_pretrained("lllyasviel/ControlNet")
+    openpose = OpenposeDetector.from_pretrained(openpose_model_path)
     openpose_image = openpose(img)
 
     if img_filename and output_dir:
