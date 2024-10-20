@@ -43,10 +43,11 @@ class CLIPImageEncoder(ImageEncoder):
         self.encoder_type = encoder_type
         self.encoder_processor = CLIPProcessor.from_pretrained(self.encoder_processor_name)
         self.encoder_model = CLIPVisionModelWithProjection.from_pretrained(self.encoder_model_name)
-
-        self.encoder_model = self.encoder_model.eval()
+           
         for param in self.parameters():
             param.requires_grad = False
+
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
     def preprocess(self, images):
         '''
@@ -56,7 +57,7 @@ class CLIPImageEncoder(ImageEncoder):
         Returns:
             tensor, tensor of shape [N,3,224,224], a batch of N images in processed pixel values ready for model
         '''
-        x = torch.tensor(self.encoder_processor.image_processor(images).pixel_values)
+        x = torch.tensor(self.encoder_processor.image_processor(images).pixel_values).to(self.device)
         return x
 
     def postprocess(self, embeddings):
@@ -66,9 +67,11 @@ class CLIPImageEncoder(ImageEncoder):
         '''
         return embeddings.detach()
     
+    @torch.no_grad()
     def forward(self, images):
         
         style_images = self.preprocess(images)
+        self.encoder_model.eval()
         ret = self.encoder_model(style_images)
         style_embeds = self.postprocess(ret[1])
         return style_embeds
@@ -85,11 +88,11 @@ class DINOImageEncoder(ImageEncoder):
         self.encoder_type = encoder_type
         self.encoder_processor = AutoImageProcessor.from_pretrained(encoder_processor_name)
         self.encoder_model = AutoModel.from_pretrained(encoder_model_name)
-        
-        self.encoder_model = self.encoder_model.eval()
+
         for param in self.parameters():
             param.requires_grad = False
     
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
     # def _tensor_to_pil(self, images):
     #     from torchvision.transforms import ToPILImage
     #     return [ToPILImage()(img) for img in images]
@@ -102,7 +105,9 @@ class DINOImageEncoder(ImageEncoder):
     def postprocess(self, embeddings):
         return embeddings.detach()
     
+    @torch.no_grad()
     def forward(self, images):
         style_images = self.preprocess(images)
+        self.encoder_model.eval()
         style_embeds = self.postprocess(self.encoder_model(**style_images)[0])
         return style_embeds

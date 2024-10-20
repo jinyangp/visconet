@@ -142,5 +142,5 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# datasets
-data/datasets/*
+# Ignore deepfashion dataset
+data/datasets

@@ -170,9 +170,7 @@ class Resampler(nn.Module):
         bs, seq_len, device = x.shape[0], x.shape[1], x.device
 
         if self.pos_emb is not None:
-            print(x.shape)
             pos_emb = self.pos_emb(torch.arange(seq_len, device=device))
-            print(pos_emb.shape)
             x = x + pos_emb
 
         # STEP: Repeat the latents
