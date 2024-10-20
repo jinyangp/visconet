@@ -40,18 +40,19 @@ class HumanSegmentor(nn.Module):
                                      num_classes=num_classes)
             self.transforms = DeepLabV3_ResNet50_Weights.COCO_WITH_VOC_LABELS_V1.transforms()
     
-        self.model = self.model.eval()
         for params in self.model.parameters():
             params.requires_grad = False
 
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
+    @torch.no_grad()
     def get_segmentation_masks(self,
-                               img: Image.Image,
-                               output_dir:str=None):
+                            img: Image.Image,
+                            output_dir:str=None):
 
         transformed_img = torch.unsqueeze(self.transforms(img).to(self.device), 0)
-        model_output = self.model(transformed_img)
+        self.model.eval()
+        model_output = self.model(transformed_img)  
         preds = model_output['out'][0].argmax(0)
         
         preds = preds.float()

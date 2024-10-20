@@ -56,7 +56,6 @@ class FashionSegmentor(nn.Module):
         
         for param in self.model.parameters():
             param.requires_grad = False
-        self.model = self.model.eval()
         self.valid_threshold = valid_threshold
 
         self.img_size = img_size # 224,224
@@ -115,7 +114,12 @@ class FashionSegmentor(nn.Module):
         '''
 
         indices = np.where(img_np != 0)
-        indices = np.array([(indices[0][i], indices[1][i]) for i in range(len(indices[0]))])
+        # if no indices are found,
+        if len(indices[0]) == 0:
+            img_height, img_width = new_img_size[1], new_img_size[0]
+            return np.zeros((img_height, img_width, 3))
+            
+        indices = np.stack((indices[0], indices[1]), axis=-1)
 
         y_indices = indices[:,0]
         x_indices = indices[:,1]
@@ -186,11 +190,11 @@ class FashionSegmentor(nn.Module):
 
         # STEP: Iterate through list of ids we are trying to find
         for _id in present_ids:
-
+            
             # NOTE: We can skip _ids that are not in our target list
             if _id.item() not in target_ids:
                 continue
-
+            
             # print(f"Found id: {_id.item()} referring to class {target_label_dict[_id.item()]}") # TODO: Delete later, for debuggging
 
             # STEP: Get mask for this particular key
@@ -272,6 +276,7 @@ class FashionSegmentor(nn.Module):
         else:
             org_img = self.processor(images=img_tensor, return_tensors="pt").to(self.device) 
             org_img_tensor = org_img["pixel_values"] # [1,3,768,768]
+            self.model.eval()
             out = self.model(**org_img)
             logits = out.logits
 

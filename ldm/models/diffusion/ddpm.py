@@ -904,7 +904,7 @@ class LatentDiffusion(DDPM):
 
         loss_simple = self.get_loss(model_output, target, mean=False)
         if 'c_concat_mask' in cond:
-            cond_mask = torch.stack(cond['c_concat_mask'], dim=0) # remove list
+            cond_mask = torch.cat(cond['c_concat_mask'], 1) # remove list
             resized_mask = T.Resize(list(loss_simple.shape[-2:]), T.InterpolationMode.NEAREST)(cond_mask)
             resized_mask = resized_mask.unsqueeze(1)
             loss_simple *= resized_mask

@@ -77,10 +77,10 @@ class ViscoNetLDM(LatentDiffusion):
             human_masks.append(human_mask)
 
         if self.control_crossattn_key:
-            ret_dict["c_crossattn"] = style_attrs
+            ret_dict["c_crossattn"] = [torch.stack(style_attrs,dim=0)]
         
         if self.mask_key:
-            ret_dict["c_concat_mask"] = human_masks
+            ret_dict["c_concat_mask"] = [torch.stack(human_masks,dim=0)]
 
         # NOTE: Old way
         # -------
@@ -98,15 +98,16 @@ class ViscoNetLDM(LatentDiffusion):
         diffusion_model = self.model.diffusion_model
         # c_concat : skeleton [batch, 3, 512, 512] -> NOTE: the openpose
         # c_crossattn : text [batch, 77, 1024] -> NOTE: the text embeddings
+
         cond_txt = torch.cat(cond['c_text'], 1) # remove list
-        cond_cross = torch.stack(cond['c_crossattn'], dim=0) # remove list
-        cond_mask = torch.stack(cond['c_concat_mask'], dim=0) # remove list
+        cond_cross = torch.cat(cond['c_crossattn'], 1) 
+        cond_mask = torch.cat(cond['c_concat_mask'], 1)
         cond_concat = torch.cat(cond['c_concat'], 1) # the openpose pose
 
         if cond['c_concat'] is None:
             eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=None, only_mid_control=self.only_mid_control)
         else:
-            control = self.control_model(x=x_noisy, 
+            control = self.control_model(x=x_noisy,
                                          hint=cond_concat,
                                          timesteps=t, 
                                          context=cond_cross)
@@ -139,7 +140,7 @@ class ViscoNetLDM(LatentDiffusion):
         return self.get_learned_conditioning([""] * N)
 
     @torch.no_grad()
-    def log_images(self, batch, N=4, n_row=2, sample=False, ddim_steps=20, ddim_eta=0.0, 
+    def log_images(self, batch, N=2, n_row=2, sample=False, ddim_steps=20, ddim_eta=0.0, 
                    plot_denoise_rows=False, plot_diffusion_rows=False, unconditional_guidance_scale=12.0,**kwargs):
         use_ddim = ddim_steps is not None
 
@@ -147,7 +148,11 @@ class ViscoNetLDM(LatentDiffusion):
         z, c = self.get_input(batch, self.first_stage_key, bs=N)
         N = min(z.shape[0], N)
         n_row = min(z.shape[0], n_row)
-        c_cat, c, c_text, mask = c["c_concat"][0][:N], c["c_crossattn"][0][:N], c["c_text"][0][:N], c["c_concat_mask"][0][:N]                
+
+        c_cat, c_text = c["c_concat"][0][:N], c["c_text"][0][:N] 
+        mask = c["c_concat_mask"][0][:N]
+        c = c["c_crossattn"][0][:N]
+
         reconstructed = self.decode_first_stage(z)[:N]
         #log["reconstruction"] = self.decode_first_stage(z)
         log["control"] = c_cat * 2.0 - 1.0
@@ -173,9 +178,9 @@ class ViscoNetLDM(LatentDiffusion):
 
         n_prompt = 'longbody, lowres, bad anatomy, bad hands, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, sunglasses, hat'
 
-        cond = {"c_concat": [c_cat], 
-                "c_crossattn": [c],
-                "c_text": [c_text],
+        cond = {"c_concat": [c_cat], # openpose pose
+                "c_crossattn": [c], # the style attrs
+                "c_text": [c_text], 
                 'c_concat_mask': [mask]}
 
         un_cond = {"c_concat": [c_cat], 

@@ -62,7 +62,7 @@ def main(args):
         reset_crossattn = False
 
     logger_freq = 1000
-    learning_rate = num_gpus * (batch_size / 4) * 5e-5
+    learning_rate = num_gpus * (batch_size / 4) * 5e-4
     sd_locked = True
     only_mid_control = False
     
@@ -100,11 +100,12 @@ def main(args):
                             every_n_train_steps=8000, 
                             monitor='val/loss_simple_ema')
     lr_monitor_cb = LearningRateMonitor(logging_interval='step')
-    callbacks = [logger, save_cb, setup_cb, lr_monitor_cb]  
+    callbacks = [logger, save_cb, setup_cb, lr_monitor_cb]
 
     strategy = "ddp" if num_gpus > 1 else "auto"
     trainer = pl.Trainer(accelerator="gpu", devices=gpus, strategy=strategy,
-                        precision=32, callbacks=callbacks, 
+                        precision=32,
+                        callbacks=callbacks, 
                         accumulate_grad_batches=4,
                         default_root_dir=logdir,
                         val_check_interval=100, # NOTE: We decrease to 100 here since we are testing on a 1,000 image dataset

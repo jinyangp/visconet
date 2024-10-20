@@ -43,8 +43,7 @@ class CLIPImageEncoder(ImageEncoder):
         self.encoder_type = encoder_type
         self.encoder_processor = CLIPProcessor.from_pretrained(self.encoder_processor_name)
         self.encoder_model = CLIPVisionModelWithProjection.from_pretrained(self.encoder_model_name)
-        
-        self.encoder_model = self.encoder_model.eval()   
+           
         for param in self.parameters():
             param.requires_grad = False
 
@@ -72,6 +71,7 @@ class CLIPImageEncoder(ImageEncoder):
     def forward(self, images):
         
         style_images = self.preprocess(images)
+        self.encoder_model.eval()
         ret = self.encoder_model(style_images)
         style_embeds = self.postprocess(ret[1])
         return style_embeds
@@ -89,7 +89,6 @@ class DINOImageEncoder(ImageEncoder):
         self.encoder_processor = AutoImageProcessor.from_pretrained(encoder_processor_name)
         self.encoder_model = AutoModel.from_pretrained(encoder_model_name)
 
-        self.encoder_model = self.encoder_model.eval()
         for param in self.parameters():
             param.requires_grad = False
     
@@ -109,5 +108,6 @@ class DINOImageEncoder(ImageEncoder):
     @torch.no_grad()
     def forward(self, images):
         style_images = self.preprocess(images)
+        self.encoder_model.eval()
         style_embeds = self.postprocess(self.encoder_model(**style_images)[0])
         return style_embeds
