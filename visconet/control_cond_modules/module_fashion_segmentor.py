@@ -185,7 +185,7 @@ class FashionSegmentor(nn.Module):
         # (num_attrs, 3, org_img_height, org_img_width)
         masked_imgs = []            
 
-        present_ids = torch.unique(seg_img_tensor)        
+        present_ids = torch.unique(seg_img_tensor)
         target_ids =  [k for k in target_label_dict.keys()]
 
         # STEP: Iterate through list of ids we are trying to find
@@ -245,7 +245,11 @@ class FashionSegmentor(nn.Module):
                 masked_imgs.append(masked_img_org_vals_tensor)
 
         # STEP: Concate all tensors in the res arr and return
-        return torch.cat(masked_imgs, dim=0).to(self.device)
+        if masked_imgs:
+            return torch.cat(masked_imgs, dim=0).to(self.device)
+        else:
+            print("Fashion Segmentor detected no fashion attributes!")
+            return torch.zeros(5, 3, 224, 224, dtype=torch.float32).to(self.device)
 
     @torch.no_grad()
     def forward(self,
