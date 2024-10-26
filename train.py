@@ -2,16 +2,19 @@ import os
 import argparse
 from share import *
 import torch
+from datetime import timedelta
+from omegaconf import OmegaConf
 from torch import nn
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader
 from pytorch_lightning.callbacks import ModelCheckpoint, Callback, LearningRateMonitor
+from pytorch_lightning.strategies import DDPStrategy
 from visconet.deepfashion import DeepFashionDataset, custom_collate_fn
 from cldm.logger import ImageLogger
 from cldm.model import create_model, load_state_dict
 from ldm.modules.attention import CrossAttention
-from omegaconf import OmegaConf
 from ldm.util import instantiate_from_config
+from visconet.styles_logger import StylesLogger
 
 DEFAULT_CKPT = './models/visconet_v1.pth'
 
@@ -55,8 +58,9 @@ def main(args):
 
     logdir = os.path.join('./logs/', proj_name)
 
-    if resume_path == '':
-        resume_path = DEFAULT_CKPT
+    if resume_path == '': 
+        resume_path = DEFAULT_CKPT # TODO:  Is there a default checkpoint file we can use? Do we need to retrain all attention
+        # layers in ControlNet?
         reset_crossattn = True
     else:
         reset_crossattn = False
@@ -89,21 +93,24 @@ def main(args):
     # data
     dataset = instantiate_from_config(config.dataset.train)
     val_dataset = instantiate_from_config(config.dataset.val)
-    dataloader = DataLoader(dataset, num_workers=num_workers, batch_size=batch_size, collate_fn=custom_collate_fn, shuffle=True)
-    val_dataloader = DataLoader(val_dataset, num_workers=num_workers, batch_size=batch_size, collate_fn=custom_collate_fn, shuffle=False)
-    
+    dataloader = DataLoader(dataset, num_workers=num_workers, batch_size=batch_size, collate_fn=custom_collate_fn, shuffle=True, pin_memory=True)
+    val_dataloader = DataLoader(val_dataset, num_workers=num_workers, batch_size=batch_size, collate_fn=custom_collate_fn, shuffle=False, pin_memory=True)
+        
     # callbacks
     logger = ImageLogger(batch_frequency=logger_freq)
+    styles_logger = StylesLogger(batch_frequency=logger_freq)
     setup_cb = SetupCallback(logdir=logdir, ckptdir=logdir, cfgdir=logdir, config=config)
     save_cb = ModelCheckpoint(dirpath=logdir,
                             save_last=True, 
                             every_n_train_steps=8000, 
                             monitor='val/loss_simple_ema')
     lr_monitor_cb = LearningRateMonitor(logging_interval='step')
-    callbacks = [logger, save_cb, setup_cb, lr_monitor_cb]
+    # TODO: To have one mroe additional callback to visualise fashion segmentor outputs
+    callbacks = [logger, styles_logger, save_cb, setup_cb, lr_monitor_cb]
 
-    strategy = "ddp" if num_gpus > 1 else "auto"
-    trainer = pl.Trainer(accelerator="gpu", devices=gpus, strategy=strategy,
+    # strategy = "ddp" if num_gpus > 1 else "auto"
+    if num_gpus > 1:
+        trainer = pl.Trainer(accelerator="gpu", devices=gpus, strategy="ddp",
                         precision=32,
                         callbacks=callbacks, 
                         accumulate_grad_batches=4,
@@ -113,6 +120,17 @@ def main(args):
                         #check_val_every_n_epoch=1,
                         num_sanity_val_steps=1,
                         max_epochs=max_epochs)
+    else:
+        trainer = pl.Trainer(accelerator="gpu", devices=gpus,
+                            precision=32,
+                            callbacks=callbacks, 
+                            accumulate_grad_batches=4,
+                            default_root_dir=logdir,
+                            val_check_interval=100, # NOTE: We decrease to 100 here since we are testing on a 1,000 image dataset
+                            # val_check_interval=8000,
+                            #check  _val_every_n_epoch=1,
+                            num_sanity_val_steps=1,
+                            max_epochs=max_epochs)
 
     # Train!
     trainer.fit(model, dataloader, val_dataloader)
@@ -133,3 +151,13 @@ if __name__ == "__main__":
 
     # Calling the main function with parsed arguments
     main(args)
+
+    '''
+    Experiment configs to run:
+    - Solve train.py crashing due to NCCL error and check params we are currently training --> try to run on one GPU
+    - Train again
+    - Observe what images are being segmented from module
+    - Train again with a higher num_queries for resampler
+    - Train with resetting reset_crossattn
+    - Train again with DINO
+    '''

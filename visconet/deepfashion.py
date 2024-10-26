@@ -76,15 +76,18 @@ class DeepFashionDataset(Loader):
         
         # STEP: Add column to file path of segmentation map (do this before we make image the index of the df and we can't reference it as a column anymore)
         def append_styles_fp_col(source_img_partial_fp):
-            partial_fp = source_img_partial_fp.replace(".jpg", ".png")
-            partial_fp = partial_fp.replace("/", "-")
-            styles_full_fp = os.path.join(self.image_root, partial_fp)
+            partial_fn = source_img_partial_fp.split(".")[0]
+            partial_fn = partial_fn.replace("/", "-")
+            partial_fn += "_segm.png" 
+            styles_full_fp = os.path.join(self.style_root, partial_fn)
 
             if os.path.exists(styles_full_fp):
-                return partial_fp
+                return partial_fn
             else:
-                return np.nan    
-        self.map_df["styles"] = self.map_df["image"].apply(lambda fp: append_styles_fp_col(fp))
+                return np.nan
+        
+        if "styles" not in self.map_df.columns:    
+            self.map_df["styles"] = self.map_df["image"].apply(lambda fp: append_styles_fp_col(fp))
         
         self.map_df.set_index('image', inplace=True)
 
@@ -122,7 +125,8 @@ class DeepFashionDataset(Loader):
             
             # STEP: Get the segmentation mask of fashion attributes
             styles_path = source["styles"]
-            if pd.isna(styles_path):
+            # two circumstances - we did not have the seg image fp or the seg image fp does not exist
+            if pd.isna(styles_path) or not os.path.exists(str(self.style_root/styles_path)):
                 full_styles_pil = None 
             else:
                 full_styles_path = str(self.style_root/styles_path)

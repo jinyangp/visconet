@@ -149,8 +149,8 @@ class ViscoNetLDM(LatentDiffusion):
         N = min(z.shape[0], N)
         n_row = min(z.shape[0], n_row)
 
-        c_cat, c_text = c["c_concat"][0][:N], c["c_text"][0][:N] 
-        mask = c["c_concat_mask"][0][:N]
+        # STEP: Get the remaining fields
+        c_cat, c_text, mask = c["c_concat"][0][:N], c["c_text"][0][:N], c["c_concat_mask"][0][:N]
         c = c["c_crossattn"][0][:N]
 
         reconstructed = self.decode_first_stage(z)[:N]
@@ -158,6 +158,7 @@ class ViscoNetLDM(LatentDiffusion):
         log["control"] = c_cat * 2.0 - 1.0
         log["conditioning"] = log_txt_as_img((64, 64), batch[self.cond_stage_key], size=16)
 
+        # NOTE: if we want to see rows of diffusion outputs
         if plot_diffusion_rows:
             # get diffusion row
             diffusion_row = list()
@@ -188,6 +189,7 @@ class ViscoNetLDM(LatentDiffusion):
                 "c_text":[self.get_learned_conditioning([n_prompt] * N)],
                 'c_concat_mask': [torch.zeros_like(mask)] }
         
+        # NOTE: if we just want to compare the sampled output with the source image
         if sample:
             # get denoise row
             samples, z_denoise_row = self.sample_log(cond=cond,
@@ -245,7 +247,7 @@ class ViscoNetLDM(LatentDiffusion):
         images['samples']/=(torch.max(torch.abs(images['samples'])))
 
         for k in ['src_img', 'jpg']:
-            batch[k] = (rearrange(batch[k],'b h w c -> b c h w' ) + 1.0) / 2.0
+            batch[k] = (rearrange(batch[k],'b h w c -> b c h w') + 1.0) / 2.0
 
         # save ground truth, source, mask
         # save samples
@@ -271,7 +273,7 @@ class ViscoNetLDM(LatentDiffusion):
             T.ToPILImage()(src_image).save(src_root/f'{fname}.{f_ext}')
             T.ToPILImage()(gt).save(gt_root/f'{fname}.{f_ext}')
             #T.ToPILImage()(mask).save(mask_root/f'{fname}.{f_ext}')
-
+    
     def configure_optimizers(self):
         lr = self.learning_rate
         params = list(self.control_model.parameters())
