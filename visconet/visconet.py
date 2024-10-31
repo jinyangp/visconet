@@ -1,6 +1,7 @@
 import os
 import einops
 import torch
+import numpy as np
 from torchvision import transforms as T
 from pathlib import Path
 from PIL import Image
@@ -10,6 +11,7 @@ from ldm.models.diffusion.ddpm import LatentDiffusion
 from ldm.util import log_txt_as_img, exists, instantiate_from_config
 from ldm.models.diffusion.ddim import DDIMSampler
 
+from visconet.control_cond_modules.util import resize_img_tensor
 
 class ViscoNetLDM(LatentDiffusion):
 
@@ -36,6 +38,8 @@ class ViscoNetLDM(LatentDiffusion):
     @torch.no_grad()
     def get_input(self, batch, k, bs=None, *args, **kwargs):
         # STEP: Get latents of image and text embeddings
+        # NOTE: first_stage_key is "jpg" and it refers to the target image so 
+        # NOTE: 
         x, c_text = super().get_input(batch, self.first_stage_key, *args, **kwargs)
 
         # STEP: Get pose
@@ -97,7 +101,7 @@ class ViscoNetLDM(LatentDiffusion):
         assert isinstance(cond, dict)
         diffusion_model = self.model.diffusion_model
         # c_concat : skeleton [batch, 3, 512, 512] -> NOTE: the openpose
-        # c_crossattn : text [batch, 77, 1024] -> NOTE: the text embeddings
+        # c_crossattn : text [batch, 77, 1024] -> NOTE: the style attributes
 
         cond_txt = torch.cat(cond['c_text'], 1) # remove list
         cond_cross = torch.cat(cond['c_crossattn'], 1) 
@@ -145,11 +149,20 @@ class ViscoNetLDM(LatentDiffusion):
         use_ddim = ddim_steps is not None
 
         log = dict()
+        
+        # NOTE: The image being fed into the VAE to get the latents is the target image
+        # NOTE: The pose comes from the target image as well
+        # NOTE: But the style comes from the source image
+
+        # NOTE: z holds the latents of the source image
         z, c = self.get_input(batch, self.first_stage_key, bs=N)
         N = min(z.shape[0], N)
         n_row = min(z.shape[0], n_row)
 
-        # STEP: Get the remaining fields
+        # c_concat: the openpose image
+        # c_text: the text prompt
+        # c_concat_mask: the human mask to apply
+        # c_crossattn: the style attributes
         c_cat, c_text, mask = c["c_concat"][0][:N], c["c_text"][0][:N], c["c_concat_mask"][0][:N]
         c = c["c_crossattn"][0][:N]
 
@@ -213,9 +226,34 @@ class ViscoNetLDM(LatentDiffusion):
                                              unconditional_conditioning=un_cond,
                                              )
             x_samples_cfg = self.decode_first_stage(samples_cfg)
-            #log[f"samples_cfg_scale_{unconditional_guidance_scale:.2f}"] = x_samples_cfg
+            # log[f"samples_cfg_scale_{unconditional_guidance_scale:.2f}"] = x_samples_cfg
+            
+            # NOTE: samples refers to the reconstructed image generated with guidance
             log["samples"] = x_samples_cfg
-            log['concat'] = torch.cat((reconstructed, x_samples_cfg), dim=-2)
+
+            
+            # TODO: Find a way to log the target image as well
+            # STEP: get the source image pil
+            # reconstructed shape: [min(bs,N),3,512,512], x_sample_cfg: [min(bs,N),3,512,512]
+            
+            # Initialize an empty list to store transformed tensors
+            src_img_pils = batch["src_img_pil"][:N]
+            src_img_tensors = []
+
+            # Process each PIL image
+            for pil_img in src_img_pils:
+                tensor_img = T.ToTensor()(pil_img)  # Convert to tensor in [0, 1]
+                tensor_img = tensor_img * 2 - 1  # Rescale to [-1, 1]
+                src_img_tensors.append(tensor_img)
+            # Stack the list into a single tensor with shape [N, C, H, W] if needed
+            src_img_tensors = torch.cat([torch.stack(src_img_tensors,dim=0)], 1)# expect [min(bs,N), 3, pil_img_height, pil_img_width]
+            
+            model_output_height, model_output_width = x_samples_cfg.shape[-2], x_samples_cfg.shape[-1]
+            src_imgs = resize_img_tensor(src_img_tensors, model_output_height, model_output_width).to(self.device) # expect [min(bs,N), 3, model_output_height, model_output_width]
+             
+            # NOTE: concat shows the original target image reconstructed from its latents on the top and x_samples_cfg shows the reconstructed generated image of the target image
+            log['concat'] = torch.cat((src_imgs, reconstructed, x_samples_cfg), dim=-2)
+            log["reconstructed"] =  reconstructed
 
         return log
 

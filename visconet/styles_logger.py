@@ -54,26 +54,31 @@ class StylesLogger(Callback):
             elif num_null_attrs < 0:
                 style_attrs = style_attrs[:num_fashion_attrs,:,:,:]
 
-            human_img_tensor = human_img_tensor.unsqueeze(0)
-            src_img = torch.tensor(np.array(src_img)).to(device).permute(2,0,1).unsqueeze(0)
-            
+
             # STEP: Resize human image tensor and source image to match style attributes so that
             # we can make image grid later
-            human_img_tensor = resize_img_tensor(human_img_tensor, self.grid_image_height, self.grid_image_width)
-            src_img = resize_img_tensor(src_img, self.grid_image_height, self.grid_image_width)
+            # human_mask shape: [1,768,768]
+            human_mask = human_mask.unsqueeze(0) # [1,1,768,768]
+            human_mask = resize_img_tensor(human_mask, self.grid_image_height, self.grid_image_width) # [1,1,224,224]
+            human_mask = human_mask.squeeze(0)*255 # [1, 224, 224]
+            human_mask = human_mask.repeat(3,1,1) # [3,224,224]
+            human_mask = human_mask.unsqueeze(0) # [1,3,224,224]
 
+            src_img = torch.tensor(np.array(src_img)).to(device).permute(2,0,1).unsqueeze(0)
+            src_img = resize_img_tensor(src_img, self.grid_image_height, self.grid_image_width)
+            
             # [7,C,H,W]
-            img = torch.cat((src_img, human_img_tensor, style_attrs), dim=0).to(device)
+            img = torch.cat((src_img, human_mask, style_attrs), dim=0).to(device)
             imgs.append(img)
             # TO ENSURE: ALL IMAGE IN (C,H,W) with same width and height
 
         # [BS,7,C,H,W]
         imgs = torch.stack(imgs,dim=0).to(device)
-        nrow = imgs.shape[1]
         imgs = imgs.view(-1, imgs.shape[2], imgs.shape[3], imgs.shape[4])
 
         # STEP: Make image grid
-        grid = torchvision.utils.make_grid(imgs, nrow=nrow)
+        # NOTE: Considering that we have 1 source image, 1 mask and 8 fashion attributes, we have 2 rows of 5 images each
+        grid = torchvision.utils.make_grid(imgs, nrow=5)
 
         # STEP: Convert grid to numpy array
         grid_np = grid.permute(1, 2, 0).detach().cpu().numpy()
