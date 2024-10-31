@@ -21,7 +21,8 @@ class LocalStyleProjector(nn.Module):
                 num_fashion_attrs:int=5,
                 uncond_guidance:bool=True,
                 output_height:int=512, # to match output dimensions of visconet
-                output_width:int=512
+                output_width:int=512,
+                use_baseline: bool=False
                 ):
         '''
         This class contains the following blocks:
@@ -42,6 +43,7 @@ class LocalStyleProjector(nn.Module):
         self.output_height = output_height
         self.output_width = output_width
 
+        self.use_baseline = use_baseline
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         
     def forward(self,
@@ -84,38 +86,42 @@ class LocalStyleProjector(nn.Module):
         # output_shape: [num_fashion_attrs, 3, 224, 224]
         num_attrs = style_attrs.shape[0]
         num_null_attrs = self.num_fashion_attrs - num_attrs
-        # if we need to pad with 0 matrices
+
+        # if we need to pad with resampled attrs,
         if num_null_attrs > 0:
-            _, ch, height, width = style_attrs.shape
-            null_attrs = torch.zeros((num_null_attrs, ch, height, width), dtype=style_attrs.dtype).to(self.device)
-            style_attrs = torch.cat([style_attrs, null_attrs], dim=0)   
+            # STEP: To resample from retrieved attributes rather than adding 0 matrices
+            resample_indices = torch.randint(0, num_attrs, (num_null_attrs,))
+            resampled_tensor = style_attrs[resample_indices]
+            style_attrs = torch.cat([style_attrs, resampled_tensor], dim=0)
+            
         # if we need to remove some fashion attributes  
-        elif num_null_attrs < 0:
+        elif num_null_attrs <= 0:
             style_attrs = style_attrs[:self.num_fashion_attrs,:,:,:]
 
         # STEP: Encode the fashion attributes
         # output shape: [num_fashion_attrs, 257, 1024] if using CLIP embeddor
         # output shape: [num_fashion_attrs, 257, 768] if using DINO embeddor
-        # NOTE: If uncond_guidance is used,
-        # TODO: At the moment, not using uncond_attrs
-        if self.uncond_guidance:
-            uncond_attrs = torch.zeros_like(style_attrs, dtype=style_attrs.dtype).to(self.device)
-            uncond_attrs_embed = self.image_encoder(uncond_attrs)
 
         style_attrs_embed = self.image_encoder(style_attrs) 
         # print(f'Encoded style attrs shape: {style_attrs_embed.shape}')
         # print(f'Unconditional attrs embed shape: {uncond_attrs_embed.shape}')
 
         # STEP: Resample the embeddings
-        # output shape: [num_fashion_attrs*num_queries, 1024]
-        # [num_fashion_attrs, num_queries, 1024]
-        resampled_style_attrs_embed = self.resampler(style_attrs_embed)
+        if self.use_baseline:
+            # NOTE: In this case, we use the original local style projector in the original Visconet
+            # From ebeddings of shape [bs, num_fashion_attrs, 257, 1024] -> [bs, num_fashion_attrs*pool_size, 1024] where the pretrained weights used a value of 9 for pool_size
+            style_attrs_embed = style_attrs_embed.unsqueeze(0)
+            resampled_style_attrs_embed = self.resampler(style_attrs_embed)            
+            resampled_style_attrs_embed = resampled_style_attrs_embed.squeeze(0)
 
-        # [num_fashion_attrs, num_queries, 1024] -> [num_fashion_attrs*num_queries, 1024]
-        resampled_style_attrs_embed = rearrange(resampled_style_attrs_embed, 'b n d -> (b n) d')
+        else:
+            # NOTE: In this case, we use the newly designed LocalStyleProjector where
+            # output shape: [num_fashion_attrs*num_queries, 1024]
+            # [num_fashion_attrs, num_queries, 1024]
+            resampled_style_attrs_embed = self.resampler(style_attrs_embed)
 
-        resampled_uncond_attrs_embed = self.resampler(uncond_attrs_embed)
-        resampled_uncond_attrs_embed = rearrange(resampled_uncond_attrs_embed, 'b n d -> (b n) d')
+            # [num_fashion_attrs, num_queries, 1024] -> [num_fashion_attrs*num_queries, 1024]
+            resampled_style_attrs_embed = rearrange(resampled_style_attrs_embed, 'b n d -> (b n) d')
 
         # print(f'Resampled Encoded style attrs shape: {resampled_style_attrs_embed.shape}')
         # print(f'Resampled Unconditional attrs embed shape: {resampled_uncond_attrs_embed.shape}')

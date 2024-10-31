@@ -58,14 +58,7 @@ def main(args):
 
     logdir = os.path.join('./logs/', proj_name)
 
-    if resume_path == '': 
-        resume_path = DEFAULT_CKPT # TODO:  Is there a default checkpoint file we can use? Do we need to retrain all attention
-        # layers in ControlNet?
-        reset_crossattn = True
-    else:
-        reset_crossattn = False
-
-    logger_freq = 1000
+    logger_freq = 500
     learning_rate = num_gpus * (batch_size / 4) * 5e-4
     sd_locked = True
     only_mid_control = False
@@ -76,6 +69,11 @@ def main(args):
     model.learning_rate = learning_rate
     model.sd_locked = sd_locked
     model.only_mid_control = only_mid_control
+
+    if (resume_path == DEFAULT_CKPT and model.control_cond_model.use_baseline) or (resume_path != DEFAULT_CKPT and not model.control_cond_model.use_baseline): 
+        reset_crossattn = False
+    else:
+        reset_crossattn = True
 
     # initialize cross attention weights
     if reset_crossattn:
@@ -105,7 +103,7 @@ def main(args):
                             every_n_train_steps=8000, 
                             monitor='val/loss_simple_ema')
     lr_monitor_cb = LearningRateMonitor(logging_interval='step')
-    # TODO: To have one mroe additional callback to visualise fashion segmentor outputs
+    # TODO: To have one more additional callback to visualise fashion segmentor outputs
     callbacks = [logger, styles_logger, save_cb, setup_cb, lr_monitor_cb]
 
     # strategy = "ddp" if num_gpus > 1 else "auto"
@@ -142,7 +140,7 @@ if __name__ == "__main__":
     # Adding arguments
     parser.add_argument('--name', type=str)
     parser.add_argument('--config', type=str, help='config file')
-    parser.add_argument('--resume_path', type=str, default='')
+    parser.add_argument('--resume_path', type=str, default=DEFAULT_CKPT)
     parser.add_argument('--gpus', nargs='+', type=int, default=[1])
     parser.add_argument('--max_epochs', type=int, default=20)
     parser.add_argument('--batch_size', type=int, default=4)

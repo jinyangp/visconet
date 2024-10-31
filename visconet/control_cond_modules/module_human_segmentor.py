@@ -58,7 +58,6 @@ class HumanSegmentor(nn.Module):
         preds = preds.float()
         # NOTE: Model output shape != model input shape so we resize to ensure they are the same
         preds = resize_img_tensor(preds, self.image_height, self.image_width)
-        print(preds.shape)
         preds = preds.squeeze(0)
 
         # class label of 15 for person in VOC and 1 for person in COCO
@@ -95,7 +94,6 @@ class HumanSegmentor(nn.Module):
         # background_mask = background_mask.unsqueeze(0)
 
         img_tensor = torch.tensor(np.array(img)).to(self.device).permute(2,0,1)
-        
         human_img_tensor = img_tensor * human_mask
         human_img_tensor = human_img_tensor.squeeze(0)
 

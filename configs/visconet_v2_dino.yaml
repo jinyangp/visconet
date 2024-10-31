@@ -89,19 +89,19 @@ model:
 
         # NOTE:  To get image embeddings from fashion attributes
         # for CLIP image encoder
-        image_encoder_config:
-          target: visconet.control_cond_modules.module_img_embeddor.CLIPImageEncoder
-          params:
-            encoder_type: "CLIP"
-            encoder_processor_name: "openai/clip-vit-large-patch14"
-            encoder_model_name: "openai/clip-vit-large-patch14"
-        # for DINO image encoder
         # image_encoder_config:
-        #   target: visconet.control_cond_modules.module_img_embeddor.DINOImageEncoder
+        #   target: visconet.control_cond_modules.module_img_embeddor.CLIPImageEncoder
         #   params:
-        #     encoder_type: "DINO"
-        #     encoder_processor_name: "facebook/dinov2-base"
-        #     encoder_model_name: "facebook/dinov2-base"
+        #     encoder_type: "CLIP"
+        #     encoder_processor_name: "openai/clip-vit-large-patch14"
+        #     encoder_model_name: "openai/clip-vit-large-patch14"
+        # for DINO image encoder
+        image_encoder_config:
+          target: visconet.control_cond_modules.module_img_embeddor.DINOImageEncoder
+          params:
+            encoder_type: "DINO"
+            encoder_processor_name: "facebook/dinov2-base"
+            encoder_model_name: "facebook/dinov2-base"
 
         # NOTE: To resample image embeddings to get richer embeddings
         resampler_config:
@@ -112,7 +112,7 @@ model:
             dim_head: 64
             heads: 16
             num_queries: 16 # TODO: Currently fixed to 4 queries per attribute
-            embedding_dim: 1024 # NOTE: Use 1024 with CLIP else 768 with DINO
+            embedding_dim: 768 # NOTE: Use 1024 with CLIP else 768 with DINO
             output_dim: 1024
             ff_mult: 4
             max_input_seq_len: 257

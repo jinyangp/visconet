@@ -147,7 +147,8 @@ class DeepFashionDataset(Loader):
             # STEP: Get text prompt
             prompt = "a person."
 
-            return dict(jpg=target_image,
+            return dict(jpg=target_image, # previously, use the target image as the latents, now, we use the soruce image as the latents
+                        #jpg=source_image,
                         txt=prompt,
                         hint=pose_image,
                         src_img=source_image,
@@ -231,6 +232,7 @@ def custom_collate_fn(batch):
 #     def __len__(self):
 #         return len(self.df)
     
+#     # so we want the styles from the source image and regenerate the target image with the pose and styles of the source image
 #     def __getitem__(self, index):
 #         try:
 #             # self.df refers to csv with to and from mapping of source images
@@ -307,7 +309,7 @@ def custom_collate_fn(batch):
 #             print(f"Skipping index {index}", e)
 #             #sys.exit()
 #             return self.skip_sample(index)
-        
+
 
 # class DeepFashionDatasetNumpy():
 #     def __init__(self,
