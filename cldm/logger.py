@@ -9,12 +9,13 @@ from pytorch_lightning.utilities.distributed import rank_zero_only
 
 
 class ImageLogger(Callback):
-    def __init__(self, batch_frequency=2000, max_images=4, clamp=True, increase_log_steps=True,
+    def __init__(self, train_batch_frequency=2000, val_batch_freuency=1000, max_images=4, clamp=True, increase_log_steps=True,
                  rescale=True, disabled=False, log_on_batch_idx=False, log_first_step=False,
                  log_images_kwargs=None, folder_name=''):
         super().__init__()
         self.rescale = rescale
-        self.batch_freq = batch_frequency
+        self.train_batch_freq = train_batch_frequency
+        self.val_batch_freq = val_batch_freuency
         self.max_images = max_images
         if not increase_log_steps:
             self.log_steps = [self.batch_freq]
@@ -24,6 +25,7 @@ class ImageLogger(Callback):
         self.log_images_kwargs = log_images_kwargs if log_images_kwargs else {}
         self.log_first_step = log_first_step
         self.folder_name = os.path.join('image_log', folder_name)
+    
     @rank_zero_only
     def log_local(self, save_dir, split, images, global_step, current_epoch, batch_idx):
         root = os.path.join(save_dir, self.folder_name, split)
@@ -40,11 +42,17 @@ class ImageLogger(Callback):
             Image.fromarray(grid).save(path)
 
     def log_img(self, pl_module, batch, batch_idx, split="train"):
+        
         check_idx = batch_idx  # if self.log_on_batch_idx else pl_module.global_step
-        if (self.check_frequency(check_idx) and  # batch_idx % self.batch_freq == 0
-                hasattr(pl_module, "log_images") and
-                callable(pl_module.log_images) and
-                self.max_images > 0):
+        # if (self.check_frequency(check_idx) and  # batch_idx % self.batch_freq == 0
+        #         hasattr(pl_module, "log_images") and
+        #         callable(pl_module.log_images) and
+        #         self.max_images > 0):
+
+        if (hasattr(pl_module, "log_images") and
+            callable(pl_module.log_images) and
+            self.max_images > 0):
+            
             logger = type(pl_module.logger)
 
             is_train = pl_module.training
@@ -72,9 +80,9 @@ class ImageLogger(Callback):
         return check_idx % self.batch_freq == 0
 
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
-        if not self.disabled:
+        if not self.disabled and batch_idx % self.train_batch_freq == 0:
             self.log_img(pl_module, batch, batch_idx, split="train")
 
-    def on_val_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
-        if not self.disabled:
+    def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
+        if not self.disabled and batch_idx % self.val_batch_freq == 0:
             self.log_img(pl_module, batch, batch_idx, split="val")

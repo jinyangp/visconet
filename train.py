@@ -58,7 +58,7 @@ def main(args):
 
     logdir = os.path.join('./logs/', proj_name)
 
-    logger_freq = 500
+    # logger_freq = 500
     learning_rate = num_gpus * (batch_size / 4) * 5e-4
     sd_locked = True
     only_mid_control = False
@@ -95,15 +95,20 @@ def main(args):
     val_dataloader = DataLoader(val_dataset, num_workers=num_workers, batch_size=batch_size, collate_fn=custom_collate_fn, shuffle=False, pin_memory=True)
         
     # callbacks
-    logger = ImageLogger(batch_frequency=logger_freq)
-    styles_logger = StylesLogger(batch_frequency=logger_freq)
+    num_training_batches = len(dataloader)
+    train_batch_freq = num_training_batches // 4
+
+    num_val_batches = len(val_dataloader)
+    val_batch_freq = num_val_batches // 2
+
+    logger = ImageLogger(train_batch_frequency=train_batch_freq, val_batch_freuency=val_batch_freq)
+    styles_logger = StylesLogger(train_batch_frequency=train_batch_freq, val_batch_freuency=val_batch_freq)
     setup_cb = SetupCallback(logdir=logdir, ckptdir=logdir, cfgdir=logdir, config=config)
     save_cb = ModelCheckpoint(dirpath=logdir,
-                            save_last=True, 
+                            save_last=True,
                             every_n_train_steps=8000, 
                             monitor='val/loss_simple_ema')
     lr_monitor_cb = LearningRateMonitor(logging_interval='step')
-    # TODO: To have one more additional callback to visualise fashion segmentor outputs
     callbacks = [logger, styles_logger, save_cb, setup_cb, lr_monitor_cb]
 
     # strategy = "ddp" if num_gpus > 1 else "auto"
@@ -113,22 +118,22 @@ def main(args):
                         callbacks=callbacks, 
                         accumulate_grad_batches=4,
                         default_root_dir=logdir,
-                        val_check_interval=100, # NOTE: We decrease to 100 here since we are testing on a 1,000 image dataset
+                        val_check_interval=1.0,
                         # val_check_interval=8000,
                         #check_val_every_n_epoch=1,
                         num_sanity_val_steps=1,
                         max_epochs=max_epochs)
     else:
         trainer = pl.Trainer(accelerator="gpu", devices=gpus,
-                            precision=32,
-                            callbacks=callbacks, 
-                            accumulate_grad_batches=4,
-                            default_root_dir=logdir,
-                            val_check_interval=100, # NOTE: We decrease to 100 here since we are testing on a 1,000 image dataset
-                            # val_check_interval=8000,
-                            #check  _val_every_n_epoch=1,
-                            num_sanity_val_steps=1,
-                            max_epochs=max_epochs)
+                        precision=32,
+                        callbacks=callbacks, 
+                        accumulate_grad_batches=4,
+                        default_root_dir=logdir,
+                        val_check_interval=1.0,
+                        # val_check_interval=8000,
+                        #check_val_every_n_epoch=1,
+                        num_sanity_val_steps=1,
+                        max_epochs=max_epochs)
 
     # Train!
     trainer.fit(model, dataloader, val_dataloader)
