@@ -147,8 +147,11 @@ class DeepFashionDataset(Loader):
             # STEP: Get text prompt
             prompt = "a person."
 
-            return dict(# jpg=target_image, # previously, use the target image as the latents, now, we use the soruce image as the latents
-                        jpg=source_image,
+            # NOTE: We use the target image as jpg key (noisy latents passed to UNET) and also dervive the target pose and mask from target image
+            # NOTE: The styles comes from the source image
+            # NOTE: Goal is to transfer styles of source image onto target image
+            return dict(jpg=target_image,
+                        # jpg=source_image,
                         txt=prompt,
                         hint=pose_image,
                         src_img=source_image,

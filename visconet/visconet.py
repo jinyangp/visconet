@@ -169,8 +169,7 @@ class ViscoNetLDM(LatentDiffusion):
         c_cat, c_text, mask = c["c_concat"][0][:N], c["c_text"][0][:N], c["c_concat_mask"][0][:N]
         c = c["c_crossattn"][0][:N]
 
-        # reconstructed = self.decode_first_stage(z)[:N]
-        #log["reconstruction"] = self.decode_first_stage(z)
+        reconstructed = self.decode_first_stage(z)[:N]
 
         log["control"] = c_cat * 2.0 - 1.0
         log["conditioning"] = log_txt_as_img((64, 64), batch[self.cond_stage_key], size=16)
@@ -235,10 +234,7 @@ class ViscoNetLDM(LatentDiffusion):
             # NOTE: samples refers to the reconstructed image generated with guidance
             log["samples"] = x_samples_cfg
 
-            
-            # TODO: Find a way to log the target image as well
-            # STEP: get the source image pil
-            # reconstructed shape: [min(bs,N),3,512,512], x_sample_cfg: [min(bs,N),3,512,512]
+            # NOTE: reconstructed shape: [min(bs,N),3,512,512], x_sample_cfg: [min(bs,N),3,512,512]
             
             # Initialize an empty list to store transformed tensors
             src_img_pils = batch["src_img_pil"][:N]
@@ -256,24 +252,22 @@ class ViscoNetLDM(LatentDiffusion):
             src_imgs = resize_img_tensor(src_img_tensors, model_output_height, model_output_width).to(self.device) # expect [min(bs,N), 3, model_output_height, model_output_width]
              
             # Initialize an empty list to store transformed tensors
-            target_img_pils = batch["target_img_pil"][:N]
-            target_img_tensors = []
+            # target_img_pils = batch["target_img_pil"][:N]
+            # target_img_tensors = []
 
             # Process each PIL image
-            for pil_img in target_img_pils:
-                tensor_img = T.ToTensor()(pil_img)  # Convert to tensor in [0, 1]
-                tensor_img = tensor_img * 2 - 1  # Rescale to [-1, 1]
-                target_img_tensors.append(tensor_img)
-            # Stack the list into a single tensor with shape [N, C, H, W] if needed
-            target_img_tensors = torch.cat([torch.stack(target_img_tensors,dim=0)], 1)# expect [min(bs,N), 3, pil_img_height, pil_img_width]
+            # for pil_img in target_img_pils:
+            #     tensor_img = T.ToTensor()(pil_img)  # Convert to tensor in [0, 1]
+            #     tensor_img = tensor_img * 2 - 1  # Rescale to [-1, 1]
+            #     target_img_tensors.append(tensor_img)
+            # # Stack the list into a single tensor with shape [N, C, H, W] if needed
+            # target_img_tensors = torch.cat([torch.stack(target_img_tensors,dim=0)], 1)# expect [min(bs,N), 3, pil_img_height, pil_img_width]
             
-            model_output_height, model_output_width = x_samples_cfg.shape[-2], x_samples_cfg.shape[-1]
-            target_imgs = resize_img_tensor(target_img_tensors, model_output_height, model_output_width).to(self.device) # expect [min(bs,N), 3, model_output_height, model_output_width]
+            # model_output_height, model_output_width = x_samples_cfg.shape[-2], x_samples_cfg.shape[-1]
+            # target_imgs = resize_img_tensor(target_img_tensors, model_output_height, model_output_width).to(self.device) # expect [min(bs,N), 3, model_output_height, model_output_width]
              
-            # NOTE: concat shows the original target image reconstructed from its latents on the top and x_samples_cfg shows the reconstructed generated image of the target image
-            # TODO: We should pass in the openpose image instead of the reconstructed image; so we have the source image as the top image, the openpose images and the generated images
-            log['concat'] = torch.cat((src_imgs, target_imgs, x_samples_cfg), dim=-2)
-            # log["reconstructed"] =  reconstructed
+            # NOTE: in order, concat shows the source images where the styles are taken from, the reconstructed target images and the generated images
+            log['concat'] = torch.cat((src_imgs, reconstructed, x_samples_cfg), dim=-2)
 
         return log
 

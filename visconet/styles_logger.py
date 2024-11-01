@@ -11,10 +11,11 @@ from visconet.control_cond_modules.util import resize_img_tensor
 class StylesLogger(Callback):
 
     # TODO: Change batch_frequency to 1 for now for debugging purposes, originally 100
-    def __init__(self, batch_frequency=2000, folder_name="", disabled=False,
-                 image_height=224, image_width=224):
+    def __init__(self, train_batch_frequency=2000, val_batch_freuency=1000, folder_name="",
+                 disabled=False, image_height=224, image_width=224):
         super().__init__()
-        self.batch_freq = batch_frequency
+        self.train_batch_freq = train_batch_frequency
+        self.val_batch_freq = val_batch_freuency
         self.folder_name = os.path.join("image_log", folder_name)
         self.disabled = False
         self.grid_image_height = image_height
@@ -94,13 +95,13 @@ class StylesLogger(Callback):
         return check_idx % self.batch_freq == 0
     
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
-        if not self.disabled and self.check_frequency(batch_idx):
+        if not self.disabled and batch_idx % self.train_batch_freq == 0:
             self.log_styles(pl_module, batch, batch_idx,
                             pl_module.global_step, pl_module.current_epoch,
                             split="train")
         
-    def on_val_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
-        if not self.disabled and self.check_frequency(batch_idx):
+    def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
+        if not self.disabled and batch_idx % self.val_batch_freq == 0:
             self.log_styles(pl_module, batch, batch_idx,
                             pl_module.global_step, pl_module.current_epoch,
                             split="val")
