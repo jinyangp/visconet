@@ -147,13 +147,14 @@ class DeepFashionDataset(Loader):
             # STEP: Get text prompt
             prompt = "a person."
 
-            return dict(jpg=target_image, # previously, use the target image as the latents, now, we use the soruce image as the latents
-                        #jpg=source_image,
+            return dict(# jpg=target_image, # previously, use the target image as the latents, now, we use the soruce image as the latents
+                        jpg=source_image,
                         txt=prompt,
                         hint=pose_image,
                         src_img=source_image,
                         src_img_pil=source_image_pil, # convert to numpy array, to be converted back to PIL image later
                         seg_img_pil=full_styles_pil, # convert to numpy array, to be converted back to PIL image later
+                        target_img_pil=target_pil,
                         fname=fname)
         
         except Exception as e:            

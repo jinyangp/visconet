@@ -49,6 +49,7 @@ class LocalStyleProjector(nn.Module):
     def forward(self,
                 source_img: Image.Image,
                 seg_img: Image.Image,
+                target_img: Image.Image,
                 output_dir: str=None):
 
         '''
@@ -70,7 +71,10 @@ class LocalStyleProjector(nn.Module):
         '''
 
         # STEP: Segment into background and foreground
-        human_img_tensor, human_mask = self.human_segmentor(source_img, output_dir=output_dir)
+        # We segment the source image to get better segmentation results
+        human_img_tensor, _ = self.human_segmentor(source_img, output_dir=output_dir)
+        # We also segment the target image to get the mask to be used
+        _, human_mask = self.human_segmentor(target_img, output_dir=output_dir)
 
         # STEP: Segment the source image for fashion attributes
         # output_shape: [num_detected_attrs, 3, 224, 224] where 0 <= num_detected_attrs <= num_fashion_attrs
