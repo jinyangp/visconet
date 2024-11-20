@@ -35,7 +35,7 @@ model:
     control_cond_config:
       target: visconet.control_cond_modules.module_main.LocalStyleProjector
       params:
-        num_fashion_attrs: 8
+        num_fashion_attrs: 5
         uncond_guidance: True
         output_height: 512 # to match output dimensions of visconet
         output_width: 512
@@ -80,28 +80,28 @@ model:
               2: "outer"
               3: "skirt"
               4: "dress"
-              7: "headwear"
+              # 7: "headwear"
               21: "rompers"
               5: "pants"
-              11: "footwear"
+              # 11: "footwear"
               13: "hair"
               14: "face"
 
         # NOTE:  To get image embeddings from fashion attributes
         # for CLIP image encoder
-        image_encoder_config:
-          target: visconet.control_cond_modules.module_img_embeddor.CLIPImageEncoder
-          params:
-            encoder_type: "CLIP"
-            encoder_processor_name: "openai/clip-vit-large-patch14"
-            encoder_model_name: "openai/clip-vit-large-patch14"
-        # for DINO image encoder
         # image_encoder_config:
-        #   target: visconet.control_cond_modules.module_img_embeddor.DINOImageEncoder
+        #   target: visconet.control_cond_modules.module_img_embeddor.CLIPImageEncoder
         #   params:
-        #     encoder_type: "DINO"
-        #     encoder_processor_name: "facebook/dinov2-base"
-        #     encoder_model_name: "facebook/dinov2-base"
+        #     encoder_type: "CLIP"
+        #     encoder_processor_name: "openai/clip-vit-large-patch14"
+        #     encoder_model_name: "openai/clip-vit-large-patch14"
+        # for DINO image encoder
+        image_encoder_config:
+          target: visconet.control_cond_modules.module_img_embeddor.DINOImageEncoder
+          params:
+            encoder_type: "DINO"
+            encoder_processor_name: "facebook/dinov2-base"
+            encoder_model_name: "facebook/dinov2-base"
 
         # NOTE: To resample image embeddings to get richer embeddings
         resampler_config:
@@ -111,8 +111,8 @@ model:
             depth: 8
             dim_head: 64
             heads: 16
-            num_queries: 16
-            embedding_dim: 1024 # NOTE: Use 1024 with CLIP else 768 with DINO
+            num_queries: 16 # TODO: Currently fixed to 4 queries per attribute
+            embedding_dim: 768 # NOTE: Use 1024 with CLIP else 768 with DINO
             output_dim: 1024
             ff_mult: 4
             max_input_seq_len: 257
@@ -196,7 +196,7 @@ dataset:
       style_dir: seg_imgs
       map_file: "./data/deepfashion/deepfashion_multimodal_map_sample.csv"
       data_files:
-        - "./data/deepfashion/pairs-train-all_multimodal_one_sample.csv" # to and from are different
+        - "./data/deepfashion/pairs-train-all_multimodal_sample.csv" # to and from are different
 
   val:
     target: visconet.deepfashion.DeepFashionDataset
@@ -206,4 +206,4 @@ dataset:
       style_dir: seg_imgs
       map_file: "./data/deepfashion/deepfashion_multimodal_map_sample.csv"
       data_files:
-        - "./data/deepfashion/pairs-test-all_multimodal_one_sample.csv" # to and from are different
+        - "./data/deepfashion/pairs-test-all_multimodal_sample.csv" # to and from are different

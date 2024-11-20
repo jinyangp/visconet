@@ -442,6 +442,7 @@ class DDPM(pl.LightningModule):
 
         loss, loss_dict = self.shared_step(batch)
 
+        # on_epoch logs the metrics at the end of every epoch where the metrics are averaged out
         self.log_dict(loss_dict, prog_bar=True,
                       logger=True, on_step=True, on_epoch=True)
 

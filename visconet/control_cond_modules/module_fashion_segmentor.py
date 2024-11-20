@@ -185,7 +185,7 @@ class FashionSegmentor(nn.Module):
         # (num_attrs, 3, org_img_height, org_img_width)
         masked_imgs = []            
 
-        present_ids = torch.unique(seg_img_tensor)        
+        present_ids = torch.unique(seg_img_tensor)
         target_ids =  [k for k in target_label_dict.keys()]
 
         # STEP: Iterate through list of ids we are trying to find
@@ -216,7 +216,7 @@ class FashionSegmentor(nn.Module):
             # STEP: Crop, Resize and Centralise attributes - Processed np array
             masked_img_org_vals_np = self._crop_and_recentre(masked_img_org_vals_np,
                                                             new_img_size=self.output_shape)
-            
+
             # STEP: Only check for validity if we are using the HF segmentation model and add this attribute to output array if the number of pixels is above valid threshold
             if not use_seg_model or self.is_attr_valid(masked_img_org_vals_np):
 
@@ -237,6 +237,9 @@ class FashionSegmentor(nn.Module):
                 #     masked_img_pil = Image.fromarray(masked_img_org_vals_np)
                 #     masked_img_pil.save(full_fp)
 
+                # # STEP: To fill the pixels belonging to background with a lighter colour other than black to make it more gentle for the model
+                # masked_img_org_vals_np[(masked_img_org_vals_np == [0, 0, 0]).all(axis=-1)] = (178,178,178)
+                
                 # STEP: Append the processed np array converted to a tensor to res array
                 masked_img_org_vals_tensor = torch.from_numpy(masked_img_org_vals_np)
                 masked_img_org_vals_tensor = masked_img_org_vals_tensor.permute(2,0,1)
@@ -245,7 +248,11 @@ class FashionSegmentor(nn.Module):
                 masked_imgs.append(masked_img_org_vals_tensor)
 
         # STEP: Concate all tensors in the res arr and return
-        return torch.cat(masked_imgs, dim=0).to(self.device)
+        if masked_imgs:
+            return torch.cat(masked_imgs, dim=0).to(self.device)
+        else:
+            print("Fashion Segmentor detected no fashion attributes!")
+            return torch.zeros(5, 3, 224, 224, dtype=torch.float32).to(self.device)
 
     @torch.no_grad()
     def forward(self,

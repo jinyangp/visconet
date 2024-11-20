@@ -2,16 +2,20 @@ import os
 import argparse
 from share import *
 import torch
+from datetime import timedelta
+from omegaconf import OmegaConf
 from torch import nn
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader
 from pytorch_lightning.callbacks import ModelCheckpoint, Callback, LearningRateMonitor
+from pytorch_lightning.strategies import DDPStrategy
 from visconet.deepfashion import DeepFashionDataset, custom_collate_fn
 from cldm.logger import ImageLogger
 from cldm.model import create_model, load_state_dict
 from ldm.modules.attention import CrossAttention
-from omegaconf import OmegaConf
 from ldm.util import instantiate_from_config
+from visconet.styles_logger import StylesLogger
+from pytorch_lightning.loggers import TensorBoardLogger
 
 DEFAULT_CKPT = './models/visconet_v1.pth'
 
@@ -55,14 +59,8 @@ def main(args):
 
     logdir = os.path.join('./logs/', proj_name)
 
-    if resume_path == '':
-        resume_path = DEFAULT_CKPT
-        reset_crossattn = True
-    else:
-        reset_crossattn = False
-
-    logger_freq = 1000
-    learning_rate = num_gpus * (batch_size / 4) * 5e-4
+    # logger_freq = 500
+    learning_rate = num_gpus * (batch_size / 4) * 1e-5
     sd_locked = True
     only_mid_control = False
     
@@ -72,6 +70,12 @@ def main(args):
     model.learning_rate = learning_rate
     model.sd_locked = sd_locked
     model.only_mid_control = only_mid_control
+
+    # using baseline from scratch, using own/baseline model from trained checkpoint
+    if (resume_path == DEFAULT_CKPT and model.control_cond_model.use_baseline) or (resume_path != DEFAULT_CKPT): 
+        reset_crossattn = False
+    else:
+        reset_crossattn = True
 
     # initialize cross attention weights
     if reset_crossattn:
@@ -89,30 +93,51 @@ def main(args):
     # data
     dataset = instantiate_from_config(config.dataset.train)
     val_dataset = instantiate_from_config(config.dataset.val)
-    dataloader = DataLoader(dataset, num_workers=num_workers, batch_size=batch_size, collate_fn=custom_collate_fn, shuffle=True)
-    val_dataloader = DataLoader(val_dataset, num_workers=num_workers, batch_size=batch_size, collate_fn=custom_collate_fn, shuffle=False)
-    
+    dataloader = DataLoader(dataset, num_workers=num_workers, batch_size=batch_size, collate_fn=custom_collate_fn, shuffle=True, pin_memory=True)
+    val_dataloader = DataLoader(val_dataset, num_workers=num_workers, batch_size=batch_size, collate_fn=custom_collate_fn, shuffle=False, pin_memory=True)
+        
     # callbacks
-    logger = ImageLogger(batch_frequency=logger_freq)
+    # NOTE: Determine frequency of train and validation batch frequency
+    num_training_batches = len(dataloader)
+    train_batch_freq = num_training_batches // 4
+    num_val_batches = len(val_dataloader)
+    val_batch_freq = num_val_batches // 4
+
+    logger = ImageLogger(train_batch_frequency=train_batch_freq, val_batch_frequency=val_batch_freq)
+    styles_logger = StylesLogger(train_batch_frequency=train_batch_freq, val_batch_frequency=val_batch_freq)
     setup_cb = SetupCallback(logdir=logdir, ckptdir=logdir, cfgdir=logdir, config=config)
     save_cb = ModelCheckpoint(dirpath=logdir,
-                            save_last=True, 
+                            save_last=True,
                             every_n_train_steps=8000, 
                             monitor='val/loss_simple_ema')
     lr_monitor_cb = LearningRateMonitor(logging_interval='step')
-    callbacks = [logger, save_cb, setup_cb, lr_monitor_cb]
+    callbacks = [logger, styles_logger, save_cb, setup_cb, lr_monitor_cb]
 
-    strategy = "ddp" if num_gpus > 1 else "auto"
-    trainer = pl.Trainer(accelerator="gpu", devices=gpus, strategy=strategy,
+    # strategy = "ddp" if num_gpus > 1 else "auto"
+    if num_gpus > 1:
+        trainer = pl.Trainer(accelerator="gpu", devices=gpus, strategy="ddp",
                         precision=32,
                         callbacks=callbacks, 
                         accumulate_grad_batches=4,
                         default_root_dir=logdir,
-                        val_check_interval=100, # NOTE: We decrease to 100 here since we are testing on a 1,000 image dataset
+                        val_check_interval=1.0,
                         # val_check_interval=8000,
                         #check_val_every_n_epoch=1,
                         num_sanity_val_steps=1,
-                        max_epochs=max_epochs)
+                        max_epochs=max_epochs,
+                        )
+    else:
+        trainer = pl.Trainer(accelerator="gpu", devices=gpus,
+                        precision=32,
+                        callbacks=callbacks, 
+                        accumulate_grad_batches=4,
+                        default_root_dir=logdir,
+                        val_check_interval=1.0,
+                        # val_check_interval=8000,
+                        #check_val_every_n_epoch=1,
+                        num_sanity_val_steps=1,
+                        max_epochs=max_epochs,
+                        )
 
     # Train!
     trainer.fit(model, dataloader, val_dataloader)
@@ -124,7 +149,7 @@ if __name__ == "__main__":
     # Adding arguments
     parser.add_argument('--name', type=str)
     parser.add_argument('--config', type=str, help='config file')
-    parser.add_argument('--resume_path', type=str, default='')
+    parser.add_argument('--resume_path', type=str, default=DEFAULT_CKPT)
     parser.add_argument('--gpus', nargs='+', type=int, default=[1])
     parser.add_argument('--max_epochs', type=int, default=20)
     parser.add_argument('--batch_size', type=int, default=4)

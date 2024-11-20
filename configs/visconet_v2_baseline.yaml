@@ -35,10 +35,11 @@ model:
     control_cond_config:
       target: visconet.control_cond_modules.module_main.LocalStyleProjector
       params:
-        num_fashion_attrs: 8
+        num_fashion_attrs: 5
         uncond_guidance: True
         output_height: 512 # to match output dimensions of visconet
         output_width: 512
+        use_baseline: True
 
         # NOTE: To segment background and foreground first
         human_segmentor_config:
@@ -105,18 +106,12 @@ model:
 
         # NOTE: To resample image embeddings to get richer embeddings
         resampler_config:
-          target: adapters.resampler.Resampler
+          target: visconet.modules.ProjectLocalStyle
           params:
-            dim: 1024
-            depth: 8
-            dim_head: 64
-            heads: 16
-            num_queries: 16
-            embedding_dim: 1024 # NOTE: Use 1024 with CLIP else 768 with DINO
-            output_dim: 1024
-            ff_mult: 4
-            max_input_seq_len: 257
-            apply_pos_emb: True
+            pool_size: 9
+            local_emb_size: 257
+            bias: True
+            #target: visconet.modules.ClipImageEncoder
 
     control_stage_config:
       target: cldm.cldm.ControlNet
@@ -196,7 +191,7 @@ dataset:
       style_dir: seg_imgs
       map_file: "./data/deepfashion/deepfashion_multimodal_map_sample.csv"
       data_files:
-        - "./data/deepfashion/pairs-train-all_multimodal_one_sample.csv" # to and from are different
+        - "./data/deepfashion/pairs-train-all_multimodal_sample.csv" # to and from are different
 
   val:
     target: visconet.deepfashion.DeepFashionDataset
@@ -206,4 +201,4 @@ dataset:
       style_dir: seg_imgs
       map_file: "./data/deepfashion/deepfashion_multimodal_map_sample.csv"
       data_files:
-        - "./data/deepfashion/pairs-test-all_multimodal_one_sample.csv" # to and from are different
+        - "./data/deepfashion/pairs-test-all_multimodal_sample.csv" # to and from are different

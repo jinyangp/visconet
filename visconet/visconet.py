@@ -1,6 +1,7 @@
 import os
 import einops
 import torch
+import numpy as np
 from torchvision import transforms as T
 from pathlib import Path
 from PIL import Image
@@ -10,6 +11,7 @@ from ldm.models.diffusion.ddpm import LatentDiffusion
 from ldm.util import log_txt_as_img, exists, instantiate_from_config
 from ldm.models.diffusion.ddim import DDIMSampler
 
+from visconet.control_cond_modules.util import resize_img_tensor
 
 class ViscoNetLDM(LatentDiffusion):
 
@@ -36,6 +38,8 @@ class ViscoNetLDM(LatentDiffusion):
     @torch.no_grad()
     def get_input(self, batch, k, bs=None, *args, **kwargs):
         # STEP: Get latents of image and text embeddings
+        # NOTE: first_stage_key is "jpg" and it refers to the target image so 
+        # NOTE: 
         x, c_text = super().get_input(batch, self.first_stage_key, *args, **kwargs)
 
         # STEP: Get pose
@@ -58,18 +62,23 @@ class ViscoNetLDM(LatentDiffusion):
             return val
         
         # STEP: Use the src_img key from our batch to get the style attrs and human_mask
-        src_img_pils = batch["src_img_pil"]
+        # src_img_pils = batch["src_img_pil"]
         seg_img_pils = batch["seg_img_pil"]
+        target_img_pils = batch["target_img_pil"]
         if bs is not None:
-            src_img_pils = src_img_pils[:bs]
+            # src_img_pils = src_img_pils[:bs]
             seg_img_pils = seg_img_pils[:bs]
+            target_img_pils = target_img_pils[:bs]
 
         # STEP: Run source image pil through our localstyleprojector module
-        src_pils = zip(src_img_pils, seg_img_pils)
+        # src_pils = zip(src_img_pils, seg_img_pils, target_img_pils)
+        
+        src_pils = zip(seg_img_pils, target_img_pils)
         style_attrs = []
         human_masks = []
-        for src_img, seg_img in src_pils:
-            dct = self.control_cond_model(src_img, seg_img)
+        target_img_pils = []
+        for seg_img, target_img in src_pils:
+            dct = self.control_cond_model(seg_img, target_img)
             style_attr_embeds = dct["style_attr_embeds"]
             human_mask = dct["human_mask"]
 
@@ -97,7 +106,7 @@ class ViscoNetLDM(LatentDiffusion):
         assert isinstance(cond, dict)
         diffusion_model = self.model.diffusion_model
         # c_concat : skeleton [batch, 3, 512, 512] -> NOTE: the openpose
-        # c_crossattn : text [batch, 77, 1024] -> NOTE: the text embeddings
+        # c_crossattn : text [batch, 77, 1024] -> NOTE: the style attributes
 
         cond_txt = torch.cat(cond['c_text'], 1) # remove list
         cond_cross = torch.cat(cond['c_crossattn'], 1) 
@@ -140,24 +149,34 @@ class ViscoNetLDM(LatentDiffusion):
         return self.get_learned_conditioning([""] * N)
 
     @torch.no_grad()
-    def log_images(self, batch, N=2, n_row=2, sample=False, ddim_steps=20, ddim_eta=0.0, 
+    def log_images(self, batch, N=2, n_row=2, sample=False, ddim_steps=40, ddim_eta=0.0, 
                    plot_denoise_rows=False, plot_diffusion_rows=False, unconditional_guidance_scale=12.0,**kwargs):
         use_ddim = ddim_steps is not None
 
         log = dict()
+        
+        # NOTE: The image being fed into the VAE to get the latents is the target image
+        # NOTE: The pose comes from the target image as well
+        # NOTE: The style comes from the target image as well
+
+        # NOTE: z holds the latents of the source image
         z, c = self.get_input(batch, self.first_stage_key, bs=N)
         N = min(z.shape[0], N)
         n_row = min(z.shape[0], n_row)
 
-        c_cat, c_text = c["c_concat"][0][:N], c["c_text"][0][:N] 
-        mask = c["c_concat_mask"][0][:N]
+        # c_concat: the openpose image
+        # c_text: the text prompt
+        # c_concat_mask: the human mask to apply
+        # c_crossattn: the style attributes
+        c_cat, c_text, mask = c["c_concat"][0][:N], c["c_text"][0][:N], c["c_concat_mask"][0][:N]
         c = c["c_crossattn"][0][:N]
 
         reconstructed = self.decode_first_stage(z)[:N]
-        #log["reconstruction"] = self.decode_first_stage(z)
+
         log["control"] = c_cat * 2.0 - 1.0
         log["conditioning"] = log_txt_as_img((64, 64), batch[self.cond_stage_key], size=16)
 
+        # NOTE: if we want to see rows of diffusion outputs
         if plot_diffusion_rows:
             # get diffusion row
             diffusion_row = list()
@@ -188,6 +207,7 @@ class ViscoNetLDM(LatentDiffusion):
                 "c_text":[self.get_learned_conditioning([n_prompt] * N)],
                 'c_concat_mask': [torch.zeros_like(mask)] }
         
+        # NOTE: if we just want to compare the sampled output with the source image
         if sample:
             # get denoise row
             samples, z_denoise_row = self.sample_log(cond=cond,
@@ -211,10 +231,15 @@ class ViscoNetLDM(LatentDiffusion):
                                              unconditional_conditioning=un_cond,
                                              )
             x_samples_cfg = self.decode_first_stage(samples_cfg)
-            #log[f"samples_cfg_scale_{unconditional_guidance_scale:.2f}"] = x_samples_cfg
+            # log[f"samples_cfg_scale_{unconditional_guidance_scale:.2f}"] = x_samples_cfg
+            
+            # NOTE: samples refers to the reconstructed image generated with guidance
             log["samples"] = x_samples_cfg
-            log['concat'] = torch.cat((reconstructed, x_samples_cfg), dim=-2)
 
+            # reconstructed shape: [min(bs,N),3,512,512], x_sample_cfg: [min(bs,N),3,512,512]
+            # NOTE: In this case, we only need the reconstructed and generated samples
+            log['concat'] = torch.cat((reconstructed, x_samples_cfg), dim=-2)
+            
         return log
 
     @torch.no_grad()
@@ -228,7 +253,7 @@ class ViscoNetLDM(LatentDiffusion):
     @torch.no_grad()
     def test_step(self, batch, batch_idx):
         # create folder
-        f_ext = 'png' 
+        f_ext = 'png'
         sample_root = Path(self.logger.save_dir)/'samples'
         gt_root = Path(self.logger.save_dir)/'gt'
         #mask_root = Path(self.logger.save_dir)/'mask'
@@ -245,7 +270,7 @@ class ViscoNetLDM(LatentDiffusion):
         images['samples']/=(torch.max(torch.abs(images['samples'])))
 
         for k in ['src_img', 'jpg']:
-            batch[k] = (rearrange(batch[k],'b h w c -> b c h w' ) + 1.0) / 2.0
+            batch[k] = (rearrange(batch[k],'b h w c -> b c h w') + 1.0) / 2.0
 
         # save ground truth, source, mask
         # save samples
@@ -271,7 +296,7 @@ class ViscoNetLDM(LatentDiffusion):
             T.ToPILImage()(src_image).save(src_root/f'{fname}.{f_ext}')
             T.ToPILImage()(gt).save(gt_root/f'{fname}.{f_ext}')
             #T.ToPILImage()(mask).save(mask_root/f'{fname}.{f_ext}')
-
+    
     def configure_optimizers(self):
         lr = self.learning_rate
         params = list(self.control_model.parameters())
