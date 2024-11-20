@@ -7,15 +7,14 @@ from PIL import Image
 from pytorch_lightning.callbacks import Callback
 from pytorch_lightning.utilities.distributed import rank_zero_only
 
-
 class ImageLogger(Callback):
-    def __init__(self, train_batch_frequency=2000, val_batch_freuency=1000, max_images=4, clamp=True, increase_log_steps=True,
+    def __init__(self, train_batch_frequency=2000, val_batch_frequency=1000, max_images=4, clamp=True, increase_log_steps=True,
                  rescale=True, disabled=False, log_on_batch_idx=False, log_first_step=False,
                  log_images_kwargs=None, folder_name=''):
         super().__init__()
         self.rescale = rescale
         self.train_batch_freq = train_batch_frequency
-        self.val_batch_freq = val_batch_freuency
+        self.val_batch_freq = val_batch_frequency
         self.max_images = max_images
         if not increase_log_steps:
             self.log_steps = [self.batch_freq]

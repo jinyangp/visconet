@@ -15,6 +15,7 @@ from cldm.model import create_model, load_state_dict
 from ldm.modules.attention import CrossAttention
 from ldm.util import instantiate_from_config
 from visconet.styles_logger import StylesLogger
+from pytorch_lightning.loggers import TensorBoardLogger
 
 DEFAULT_CKPT = './models/visconet_v1.pth'
 
@@ -59,7 +60,7 @@ def main(args):
     logdir = os.path.join('./logs/', proj_name)
 
     # logger_freq = 500
-    learning_rate = num_gpus * (batch_size / 4) * 5e-4
+    learning_rate = num_gpus * (batch_size / 4) * 1e-5
     sd_locked = True
     only_mid_control = False
     
@@ -70,7 +71,8 @@ def main(args):
     model.sd_locked = sd_locked
     model.only_mid_control = only_mid_control
 
-    if (resume_path == DEFAULT_CKPT and model.control_cond_model.use_baseline) or (resume_path != DEFAULT_CKPT and not model.control_cond_model.use_baseline): 
+    # using baseline from scratch, using own/baseline model from trained checkpoint
+    if (resume_path == DEFAULT_CKPT and model.control_cond_model.use_baseline) or (resume_path != DEFAULT_CKPT): 
         reset_crossattn = False
     else:
         reset_crossattn = True
@@ -95,14 +97,14 @@ def main(args):
     val_dataloader = DataLoader(val_dataset, num_workers=num_workers, batch_size=batch_size, collate_fn=custom_collate_fn, shuffle=False, pin_memory=True)
         
     # callbacks
+    # NOTE: Determine frequency of train and validation batch frequency
     num_training_batches = len(dataloader)
     train_batch_freq = num_training_batches // 4
-
     num_val_batches = len(val_dataloader)
-    val_batch_freq = num_val_batches // 2
+    val_batch_freq = num_val_batches // 4
 
-    logger = ImageLogger(train_batch_frequency=train_batch_freq, val_batch_freuency=val_batch_freq)
-    styles_logger = StylesLogger(train_batch_frequency=train_batch_freq, val_batch_freuency=val_batch_freq)
+    logger = ImageLogger(train_batch_frequency=train_batch_freq, val_batch_frequency=val_batch_freq)
+    styles_logger = StylesLogger(train_batch_frequency=train_batch_freq, val_batch_frequency=val_batch_freq)
     setup_cb = SetupCallback(logdir=logdir, ckptdir=logdir, cfgdir=logdir, config=config)
     save_cb = ModelCheckpoint(dirpath=logdir,
                             save_last=True,
@@ -122,7 +124,8 @@ def main(args):
                         # val_check_interval=8000,
                         #check_val_every_n_epoch=1,
                         num_sanity_val_steps=1,
-                        max_epochs=max_epochs)
+                        max_epochs=max_epochs,
+                        )
     else:
         trainer = pl.Trainer(accelerator="gpu", devices=gpus,
                         precision=32,
@@ -133,7 +136,8 @@ def main(args):
                         # val_check_interval=8000,
                         #check_val_every_n_epoch=1,
                         num_sanity_val_steps=1,
-                        max_epochs=max_epochs)
+                        max_epochs=max_epochs,
+                        )
 
     # Train!
     trainer.fit(model, dataloader, val_dataloader)
@@ -154,13 +158,3 @@ if __name__ == "__main__":
 
     # Calling the main function with parsed arguments
     main(args)
-
-    '''
-    Experiment configs to run:
-    - Solve train.py crashing due to NCCL error and check params we are currently training --> try to run on one GPU
-    - Train again
-    - Observe what images are being segmented from module
-    - Train again with a higher num_queries for resampler
-    - Train with resetting reset_crossattn
-    - Train again with DINO
-    '''

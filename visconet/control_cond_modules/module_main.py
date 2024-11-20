@@ -67,18 +67,15 @@ class LocalStyleProjector(nn.Module):
         Returns:
             dict of keys:
                 human_mask, a tensor of shape [image_height, image_width]
-                resampled_style_attrs_embed of shape [num_queries*num_fashion_attrs, emb_dim]
+                resampled_style_attrs_embed, of shape [num_queries*num_fashion_attrs, emb_dim]
         '''
 
-        # STEP: Segment into background and foreground
-        # We segment the source image to get better segmentation results
-        human_img_tensor, _ = self.human_segmentor(source_img, output_dir=output_dir)
-        # We also segment the target image to get the mask to be used
-        _, human_mask = self.human_segmentor(target_img, output_dir=output_dir)
+        # STEP: Segment target image into background and foreground
+        human_img_tensor, human_mask = self.human_segmentor(target_img, output_dir=output_dir)
 
-        # STEP: Segment the source image for fashion attributes
+        # STEP: Segment the target image for fashion attributes
         # output_shape: [num_detected_attrs, 3, 224, 224] where 0 <= num_detected_attrs <= num_fashion_attrs
-        # if we already have the segmentation ap for fasihon attributes,
+        # if we already have the segmentation map for fasihon attributes,
         if seg_img:
             style_attrs = self.fashion_segmentor(human_img_tensor, seg_img=seg_img, output_dir=output_dir)
         # else, if we need to manually segment,
@@ -105,10 +102,7 @@ class LocalStyleProjector(nn.Module):
         # STEP: Encode the fashion attributes
         # output shape: [num_fashion_attrs, 257, 1024] if using CLIP embeddor
         # output shape: [num_fashion_attrs, 257, 768] if using DINO embeddor
-
         style_attrs_embed = self.image_encoder(style_attrs) 
-        # print(f'Encoded style attrs shape: {style_attrs_embed.shape}')
-        # print(f'Unconditional attrs embed shape: {uncond_attrs_embed.shape}')
 
         # STEP: Resample the embeddings
         if self.use_baseline:
@@ -123,12 +117,8 @@ class LocalStyleProjector(nn.Module):
             # output shape: [num_fashion_attrs*num_queries, 1024]
             # [num_fashion_attrs, num_queries, 1024]
             resampled_style_attrs_embed = self.resampler(style_attrs_embed)
-
             # [num_fashion_attrs, num_queries, 1024] -> [num_fashion_attrs*num_queries, 1024]
             resampled_style_attrs_embed = rearrange(resampled_style_attrs_embed, 'b n d -> (b n) d')
-
-        # print(f'Resampled Encoded style attrs shape: {resampled_style_attrs_embed.shape}')
-        # print(f'Resampled Unconditional attrs embed shape: {resampled_uncond_attrs_embed.shape}')
 
         # STEP: Reshape human mask to match input shape of visconet
         # Here, resampled_style_attrs_embed shape: [num_queries*num_style_attrs, 1024]

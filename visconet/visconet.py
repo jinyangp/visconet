@@ -62,21 +62,23 @@ class ViscoNetLDM(LatentDiffusion):
             return val
         
         # STEP: Use the src_img key from our batch to get the style attrs and human_mask
-        src_img_pils = batch["src_img_pil"]
+        # src_img_pils = batch["src_img_pil"]
         seg_img_pils = batch["seg_img_pil"]
         target_img_pils = batch["target_img_pil"]
         if bs is not None:
-            src_img_pils = src_img_pils[:bs]
+            # src_img_pils = src_img_pils[:bs]
             seg_img_pils = seg_img_pils[:bs]
             target_img_pils = target_img_pils[:bs]
 
         # STEP: Run source image pil through our localstyleprojector module
-        src_pils = zip(src_img_pils, seg_img_pils, target_img_pils)
+        # src_pils = zip(src_img_pils, seg_img_pils, target_img_pils)
+        
+        src_pils = zip(seg_img_pils, target_img_pils)
         style_attrs = []
         human_masks = []
         target_img_pils = []
-        for src_img, seg_img, target_img in src_pils:
-            dct = self.control_cond_model(src_img, seg_img, target_img)
+        for seg_img, target_img in src_pils:
+            dct = self.control_cond_model(seg_img, target_img)
             style_attr_embeds = dct["style_attr_embeds"]
             human_mask = dct["human_mask"]
 
@@ -147,7 +149,7 @@ class ViscoNetLDM(LatentDiffusion):
         return self.get_learned_conditioning([""] * N)
 
     @torch.no_grad()
-    def log_images(self, batch, N=2, n_row=2, sample=False, ddim_steps=20, ddim_eta=0.0, 
+    def log_images(self, batch, N=2, n_row=2, sample=False, ddim_steps=40, ddim_eta=0.0, 
                    plot_denoise_rows=False, plot_diffusion_rows=False, unconditional_guidance_scale=12.0,**kwargs):
         use_ddim = ddim_steps is not None
 
@@ -155,7 +157,7 @@ class ViscoNetLDM(LatentDiffusion):
         
         # NOTE: The image being fed into the VAE to get the latents is the target image
         # NOTE: The pose comes from the target image as well
-        # NOTE: But the style comes from the source image
+        # NOTE: The style comes from the target image as well
 
         # NOTE: z holds the latents of the source image
         z, c = self.get_input(batch, self.first_stage_key, bs=N)
@@ -234,41 +236,10 @@ class ViscoNetLDM(LatentDiffusion):
             # NOTE: samples refers to the reconstructed image generated with guidance
             log["samples"] = x_samples_cfg
 
-            # NOTE: reconstructed shape: [min(bs,N),3,512,512], x_sample_cfg: [min(bs,N),3,512,512]
+            # reconstructed shape: [min(bs,N),3,512,512], x_sample_cfg: [min(bs,N),3,512,512]
+            # NOTE: In this case, we only need the reconstructed and generated samples
+            log['concat'] = torch.cat((reconstructed, x_samples_cfg), dim=-2)
             
-            # Initialize an empty list to store transformed tensors
-            src_img_pils = batch["src_img_pil"][:N]
-            src_img_tensors = []
-
-            # Process each PIL image
-            for pil_img in src_img_pils:
-                tensor_img = T.ToTensor()(pil_img)  # Convert to tensor in [0, 1]
-                tensor_img = tensor_img * 2 - 1  # Rescale to [-1, 1]
-                src_img_tensors.append(tensor_img)
-            # Stack the list into a single tensor with shape [N, C, H, W] if needed
-            src_img_tensors = torch.cat([torch.stack(src_img_tensors,dim=0)], 1)# expect [min(bs,N), 3, pil_img_height, pil_img_width]
-            
-            model_output_height, model_output_width = x_samples_cfg.shape[-2], x_samples_cfg.shape[-1]
-            src_imgs = resize_img_tensor(src_img_tensors, model_output_height, model_output_width).to(self.device) # expect [min(bs,N), 3, model_output_height, model_output_width]
-             
-            # Initialize an empty list to store transformed tensors
-            # target_img_pils = batch["target_img_pil"][:N]
-            # target_img_tensors = []
-
-            # Process each PIL image
-            # for pil_img in target_img_pils:
-            #     tensor_img = T.ToTensor()(pil_img)  # Convert to tensor in [0, 1]
-            #     tensor_img = tensor_img * 2 - 1  # Rescale to [-1, 1]
-            #     target_img_tensors.append(tensor_img)
-            # # Stack the list into a single tensor with shape [N, C, H, W] if needed
-            # target_img_tensors = torch.cat([torch.stack(target_img_tensors,dim=0)], 1)# expect [min(bs,N), 3, pil_img_height, pil_img_width]
-            
-            # model_output_height, model_output_width = x_samples_cfg.shape[-2], x_samples_cfg.shape[-1]
-            # target_imgs = resize_img_tensor(target_img_tensors, model_output_height, model_output_width).to(self.device) # expect [min(bs,N), 3, model_output_height, model_output_width]
-             
-            # NOTE: in order, concat shows the source images where the styles are taken from, the reconstructed target images and the generated images
-            log['concat'] = torch.cat((src_imgs, reconstructed, x_samples_cfg), dim=-2)
-
         return log
 
     @torch.no_grad()
@@ -282,7 +253,7 @@ class ViscoNetLDM(LatentDiffusion):
     @torch.no_grad()
     def test_step(self, batch, batch_idx):
         # create folder
-        f_ext = 'png' 
+        f_ext = 'png'
         sample_root = Path(self.logger.save_dir)/'samples'
         gt_root = Path(self.logger.save_dir)/'gt'
         #mask_root = Path(self.logger.save_dir)/'mask'
