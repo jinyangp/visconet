@@ -111,7 +111,7 @@ model:
             depth: 8
             dim_head: 64
             heads: 16
-            num_queries: 16 # TODO: Currently fixed to 4 queries per attribute
+            num_queries: 16
             embedding_dim: 1024 # NOTE: Use 1024 with CLIP else 768 with DINO
             output_dim: 1024
             ff_mult: 4
@@ -196,7 +196,7 @@ dataset:
       style_dir: seg_imgs
       map_file: "./data/deepfashion/deepfashion_multimodal_map_sample.csv"
       data_files:
-        - "./data/deepfashion/pairs-train-all_multimodal_sample.csv" # to and from are different
+        - "./data/deepfashion/pairs-train-all_multimodal_one_sample.csv" # to and from are different
 
   val:
     target: visconet.deepfashion.DeepFashionDataset
@@ -206,4 +206,4 @@ dataset:
       style_dir: seg_imgs
       map_file: "./data/deepfashion/deepfashion_multimodal_map_sample.csv"
       data_files:
-        - "./data/deepfashion/pairs-test-all_multimodal_sample.csv" # to and from are different
+        - "./data/deepfashion/pairs-test-all_multimodal_one_sample.csv" # to and from are different

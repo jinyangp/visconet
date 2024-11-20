@@ -39,7 +39,6 @@ model:
         uncond_guidance: True
         output_height: 512 # to match output dimensions of visconet
         output_width: 512
-        use_baseline: True
 
         # NOTE: To segment background and foreground first
         human_segmentor_config:
@@ -81,10 +80,10 @@ model:
               2: "outer"
               3: "skirt"
               4: "dress"
-              7: "headwear"
+              # 7: "headwear"
               21: "rompers"
               5: "pants"
-              11: "footwear"
+              # 11: "footwear"
               13: "hair"
               14: "face"
 
@@ -106,12 +105,18 @@ model:
 
         # NOTE: To resample image embeddings to get richer embeddings
         resampler_config:
-          target: visconet.modules.ProjectLocalStyle
+          target: adapters.resampler.Resampler
           params:
-            pool_size: 9
-            local_emb_size: 257
-            bias: True
-            #target: visconet.modules.ClipImageEncoder
+            dim: 1024
+            depth: 4
+            dim_head: 64
+            heads: 16
+            num_queries: 16
+            embedding_dim: 1024 # NOTE: Use 1024 with CLIP else 768 with DINO
+            output_dim: 1024
+            ff_mult: 4
+            max_input_seq_len: 257
+            apply_pos_emb: True
 
     control_stage_config:
       target: cldm.cldm.ControlNet

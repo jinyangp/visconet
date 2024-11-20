@@ -35,7 +35,7 @@ model:
     control_cond_config:
       target: visconet.control_cond_modules.module_main.LocalStyleProjector
       params:
-        num_fashion_attrs: 8
+        num_fashion_attrs: 5
         uncond_guidance: True
         output_height: 512 # to match output dimensions of visconet
         output_width: 512
@@ -80,10 +80,10 @@ model:
               2: "outer"
               3: "skirt"
               4: "dress"
-              7: "headwear"
+              # 7: "headwear"
               21: "rompers"
               5: "pants"
-              11: "footwear"
+              # 11: "footwear"
               13: "hair"
               14: "face"
 
