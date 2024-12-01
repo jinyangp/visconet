@@ -6,14 +6,16 @@ from torch import nn
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader
 #from tutorial_dataset import MyDataset
-from visconet.deepfashion import DeepFashionDataset
+from visconet.deepfashion import DeepFashionDataset, custom_collate_fn
 from cldm.logger import ImageLogger
 from cldm.model import create_model, load_state_dict
 from ldm.modules.attention import CrossAttention
 from omegaconf import OmegaConf
 from ldm.util import instantiate_from_config
+from visconet.styles_logger import StylesLogger
 
-DEFAULT_CKPT = './models/control_sd15_ini.ckpt'
+# NOTE: I changed the base path here
+DEFAULT_CKPT = './models/visconet_v1.pth'
 
 # Configs
 #model_config = './models/cldm_v15.yaml'
@@ -30,7 +32,8 @@ def main(args):
     resume_path = args.resume_path
     gpus = args.gpus
     batch_size = args.batch_size
-
+    num_workers = len(gpus) * batch_size
+    
     proj_name = args.name
     max_epochs = args.max_epochs
 
@@ -68,11 +71,16 @@ def main(args):
     config = OmegaConf.load(model_config)
 
     test_dataset = instantiate_from_config(config.dataset.test)
-    test_dataloader = DataLoader(test_dataset, num_workers=batch_size, batch_size=batch_size, shuffle=False)
+    test_dataloader = DataLoader(test_dataset, num_workers=num_workers, batch_size=batch_size, collate_fn=custom_collate_fn, shuffle=False, pin_memory=True)
+    
+    styles_logger = StylesLogger()
+    callbacks = [styles_logger]
+
     trainer = pl.Trainer(
                         strategy="ddp",
                         accelerator="gpu", devices=gpus, 
-                        precision=32, 
+                        precision=32,
+                        callbacks=callbacks, 
                         accumulate_grad_batches=4,
                         default_root_dir=logdir,
                         check_val_every_n_epoch=1,

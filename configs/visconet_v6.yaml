@@ -19,6 +19,7 @@ model:
     scale_factor: 0.18215
     use_ema: False
     only_mid_control: False
+    p_cg: 0.95 # this means the probability of using guided training
 
     scheduler_config:
       target: torch.optim.lr_scheduler.ReduceLROnPlateau
@@ -35,7 +36,7 @@ model:
     control_cond_config:
       target: visconet.control_cond_modules.module_main.LocalStyleProjector
       params:
-        num_fashion_attrs: 5
+        num_fashion_attrs: 7
         uncond_guidance: True
         output_height: 512 # to match output dimensions of visconet
         output_width: 512
@@ -80,12 +81,13 @@ model:
               2: "outer"
               3: "skirt"
               4: "dress"
-              # 7: "headwear"
+              7: "headwear"
               21: "rompers"
               5: "pants"
-              # 11: "footwear"
+              11: "footwear"
               13: "hair"
               14: "face"
+              10: "belt"
 
         # NOTE:  To get image embeddings from fashion attributes
         # for CLIP image encoder
@@ -108,10 +110,10 @@ model:
           target: adapters.resampler.Resampler
           params:
             dim: 1024
-            depth: 4
+            depth: 8
             dim_head: 64
             heads: 16
-            num_queries: 16
+            num_queries: 24
             embedding_dim: 1024 # NOTE: Use 1024 with CLIP else 768 with DINO
             output_dim: 1024
             ff_mult: 4
