@@ -149,14 +149,14 @@ class DeepFashionDataset(Loader):
 
             # NOTE: We use the target image as jpg key (noisy latents passed to UNET) and also derive the styles, target pose and mask from target image
             # Goal is to reconstruct the target image using the segmented target styles, target pose and mask from the target image
-            return dict(jpg=target_image,
+            return dict(jpg=target_image, # tensor
                         # jpg=source_image,
-                        txt=prompt,
-                        hint=pose_image,
-                        src_img=source_image,
-                        src_img_pil=source_image_pil, # convert to numpy array, to be converted back to PIL image later
-                        seg_img_pil=full_styles_pil, # convert to numpy array, to be converted back to PIL image later
-                        target_img_pil=target_pil,
+                        txt=prompt, # text
+                        hint=pose_image, # tensor
+                        src_img=source_image, # tensor
+                        src_img_pil=source_image_pil, # pil image
+                        seg_img_pil=full_styles_pil, # pil image
+                        target_img_pil=target_pil, # pil image
                         fname=fname)
         
         except Exception as e:            

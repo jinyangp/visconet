@@ -16,7 +16,7 @@ from visconet.control_cond_modules.util import resize_img_tensor
 class ViscoNetLDM(LatentDiffusion):
 
     def __init__(self, control_stage_config, control_key, only_mid_control, control_cond_config, 
-                 control_crossattn_key, mask_key=None, enable_mask=True, *args, **kwargs):
+                 control_crossattn_key, mask_key=None, enable_mask=True, p_cg=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.control_model = instantiate_from_config(control_stage_config)
         self.control_key = control_key # image pose prompt - for openpose
@@ -27,9 +27,13 @@ class ViscoNetLDM(LatentDiffusion):
         self.mask_enables = [1 if enable_mask else 0] * 13
         self.mask_key = mask_key
         self.ddim_sampler = DDIMSampler(self)
-        # new
+
+        # NOTE: NEW
         self.control_cond_model = instantiate_from_config(control_cond_config)
-    
+        if p_cg: # NOTE: If ucg is to be used, assign a value of 0.05 in config YAML file
+            self.p_cg = p_cg
+            self.cg_prng = np.random.RandomState()
+
     '''
     # NOTE: get_input() and apply_model() are used behind the scenes in the training_step which is a necessary step needed to be implemented to use Pytorch Lightning
     # .fit() function
@@ -101,6 +105,37 @@ class ViscoNetLDM(LatentDiffusion):
         # -------
 
         return x, ret_dict
+
+    def training_step(self, batch, batch_idx):
+
+        # STEP: Get inputs; each key would become a list of tensors
+        # z shape: [BS, C, H, W]
+        z,c = self.get_input(batch, self.first_stage_key)
+        N = z.shape[0]
+        n_prompt = ""
+
+        # STEP: Process each sample in the batch and put unconditional embedding if probabilty is true
+        for idx in range(N):
+            if self.cg_prng.choice(2, p=[self.p_cg, 1.-self.p_cg]):
+                print(f'Probability of {1. - self.p_cg} - using unconditional sampling')
+                c["c_crossattn"][idx] = torch.zeros_like(c["c_crossattn"][idx])
+                c["c_text"][idx] = self.get_learned_conditioning([n_prompt] * N)
+                c["c_concat_mask"][idx] = torch.zeros_like(c["c_concat_mask"][idx])
+        
+        # STEP: Perform the forward pass and logs the metrics
+        loss, loss_dict = self(z,c)
+  
+        # on_epoch logs the metrics at the end of every epoch where the metrics are averaged out
+        self.log_dict(loss_dict, prog_bar=True,
+                      logger=True, on_step=True, on_epoch=True)
+        self.log("global_step", self.global_step,
+                 prog_bar=True, logger=True, on_step=True, on_epoch=False)
+        
+        if self.use_scheduler:
+            lr = self.optimizers().param_groups[0]['lr']
+            self.log('lr_abs', lr, prog_bar=True, logger=True, on_step=True, on_epoch=False)
+
+        return loss
 
     def apply_model(self, x_noisy, t, cond, *args, **kwargs):
         assert isinstance(cond, dict)
