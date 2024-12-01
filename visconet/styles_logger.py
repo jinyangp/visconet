@@ -8,11 +8,12 @@ from pytorch_lightning.utilities.distributed import rank_zero_only
 from visconet.control_cond_modules.util import resize_img_tensor
 
 class StylesLogger(Callback):
-    def __init__(self, train_batch_frequency=2000, val_batch_frequency=1000, folder_name="",
+    def __init__(self, train_batch_frequency=2000, val_batch_frequency=1000, test_batch_frequency=1, folder_name="",
                  disabled=False, image_height=224, image_width=224):
         super().__init__()
         self.train_batch_freq = train_batch_frequency
         self.val_batch_freq = val_batch_frequency
+        self.test_batch_freq = test_batch_frequency
         self.folder_name = os.path.join("image_log", folder_name)
         self.disabled = False
         self.grid_image_height = image_height
@@ -103,3 +104,9 @@ class StylesLogger(Callback):
             self.log_styles(pl_module, batch, batch_idx,
                             pl_module.global_step, pl_module.current_epoch,
                             split="val")
+            
+    def on_test_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
+        if not self.disabled and batch_idx % self.test_batch_freq == 0:
+            self.log_styles(pl_module, batch, batch_idx,
+                            pl_module.global_step, pl_module.current_epoch,
+                            split="test")
