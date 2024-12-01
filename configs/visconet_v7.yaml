@@ -114,7 +114,7 @@ model:
             dim_head: 64
             heads: 16
             num_queries: 16
-            embedding_dim: 1024 # NOTE: Use 1024 with CLIP else 768 with DINO
+            embedding_dim: 768 # NOTE: Use 1024 with CLIP else 768 with DINO
             output_dim: 1024
             ff_mult: 4
             max_input_seq_len: 257
