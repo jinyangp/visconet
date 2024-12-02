@@ -117,9 +117,9 @@ class ViscoNetLDM(LatentDiffusion):
         # STEP: Process each sample in the batch and put unconditional embedding if probabilty is true
         for idx in range(N):
             if self.cg_prng.choice(2, p=[self.p_cg, 1.-self.p_cg]):
-                print(f'Probability of {1. - self.p_cg} - using unconditional sampling')
+                print(f'Probability of {1. - self.p_cg} - using unconditional guidance')
                 c["c_crossattn"][idx] = torch.zeros_like(c["c_crossattn"][idx])
-                c["c_text"][idx] = self.get_learned_conditioning([n_prompt] * N)
+                c["c_text"][idx] = self.get_learned_conditioning([n_prompt])
                 c["c_concat_mask"][idx] = torch.zeros_like(c["c_concat_mask"][idx])
         
         # STEP: Perform the forward pass and logs the metrics
