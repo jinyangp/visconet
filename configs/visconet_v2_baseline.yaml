@@ -35,7 +35,7 @@ model:
     control_cond_config:
       target: visconet.control_cond_modules.module_main.LocalStyleProjector
       params:
-        num_fashion_attrs: 5
+        num_fashion_attrs: 8
         uncond_guidance: True
         output_height: 512 # to match output dimensions of visconet
         output_width: 512
@@ -201,7 +201,7 @@ dataset:
       style_dir: seg_imgs
       map_file: "./data/deepfashion/deepfashion_multimodal_map_sample.csv"
       data_files:
-        - "./data/deepfashion/pairs-test-all_multimodal_sample.csv" # to and from are different
+        - "./data/deepfashion/pairs-test-all_solo_multimodal_sample.csv" # to and from are different
 
   test:
     target: visconet.deepfashion.DeepFashionDataset
@@ -211,4 +211,4 @@ dataset:
       style_dir: seg_imgs
       map_file: "./data/deepfashion/deepfashion_multimodal_map_sample.csv"
       data_files:
-        - "./data/deepfashion/pairs-test-all_multimodal_sample.csv" # to and from are different
+        - "./data/deepfashion/pairs-test-all_solo_multimodal_sample.csv" # to and from are different

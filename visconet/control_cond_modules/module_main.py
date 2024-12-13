@@ -47,9 +47,8 @@ class LocalStyleProjector(nn.Module):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         
     def forward(self,
-                source_img: Image.Image,
                 seg_img: Image.Image,
-                target_img: Image.Image,
+                style_img: Image.Image,
                 output_dir: str=None):
 
         '''
@@ -71,7 +70,7 @@ class LocalStyleProjector(nn.Module):
         '''
 
         # STEP: Segment target image into background and foreground
-        human_img_tensor, human_mask = self.human_segmentor(target_img, output_dir=output_dir)
+        human_img_tensor, human_mask = self.human_segmentor(style_img, output_dir=output_dir)
 
         # STEP: Segment the target image for fashion attributes
         # output_shape: [num_detected_attrs, 3, 224, 224] where 0 <= num_detected_attrs <= num_fashion_attrs

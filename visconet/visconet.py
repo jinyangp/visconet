@@ -30,8 +30,8 @@ class ViscoNetLDM(LatentDiffusion):
 
         # NOTE: NEW
         self.control_cond_model = instantiate_from_config(control_cond_config)
-        if p_cg: # NOTE: If ucg is to be used, assign a value of 0.05 in config YAML file
-            self.p_cg = p_cg
+        self.p_cg = p_cg
+        if self.p_cg: # NOTE: If ucg is to be used, assign a value of 0.05 in config YAML file
             self.cg_prng = np.random.RandomState()
 
     '''
@@ -68,19 +68,15 @@ class ViscoNetLDM(LatentDiffusion):
         # STEP: Use the src_img key from our batch to get the style attrs and human_mask
         # src_img_pils = batch["src_img_pil"]
         seg_img_pils = batch["seg_img_pil"]
-        target_img_pils = batch["target_img_pil"]
+        src_img_pils = batch["src_img_pil"]
         if bs is not None:
             # src_img_pils = src_img_pils[:bs]
             seg_img_pils = seg_img_pils[:bs]
-            target_img_pils = target_img_pils[:bs]
+            src_img_pils = src_img_pils[:bs]
 
-        # STEP: Run source image pil through our localstyleprojector module
-        # src_pils = zip(src_img_pils, seg_img_pils, target_img_pils)
-        
-        src_pils = zip(seg_img_pils, target_img_pils)
+        src_pils = zip(seg_img_pils, src_img_pils)
         style_attrs = []
         human_masks = []
-        target_img_pils = []
         for seg_img, target_img in src_pils:
             dct = self.control_cond_model(seg_img, target_img)
             style_attr_embeds = dct["style_attr_embeds"]
@@ -115,16 +111,19 @@ class ViscoNetLDM(LatentDiffusion):
         n_prompt = ""
 
         # STEP: Process each sample in the batch and put unconditional embedding if probabilty is true
-        for idx in range(N):
-            if self.cg_prng.choice(2, p=[self.p_cg, 1.-self.p_cg]):
-                print(f'Probability of {1. - self.p_cg} - using unconditional guidance')
-                c["c_crossattn"][idx] = torch.zeros_like(c["c_crossattn"][idx])
-                c["c_text"][idx] = self.get_learned_conditioning([n_prompt])
-                c["c_concat_mask"][idx] = torch.zeros_like(c["c_concat_mask"][idx])
-        
-        # STEP: Perform the forward pass and logs the metrics
-        loss, loss_dict = self(z,c)
-  
+        if self.p_cg:
+            for idx in range(N):
+                if self.cg_prng.choice(2, p=[self.p_cg, 1.-self.p_cg]):
+                    print(f'Probability of {1. - self.p_cg} - using unconditional guidance')
+                    c["c_crossattn"][idx] = torch.zeros_like(c["c_crossattn"][idx])
+                    c["c_text"][idx] = self.get_learned_conditioning([n_prompt])
+                    c["c_concat_mask"][idx] = torch.zeros_like(c["c_concat_mask"][idx])
+            # STEP: Perform the forward pass and logs the metrics
+            loss, loss_dict = self(z,c)
+
+        else:
+            loss, loss_dict = self.shared_step(batch)
+
         # on_epoch logs the metrics at the end of every epoch where the metrics are averaged out
         self.log_dict(loss_dict, prog_bar=True,
                       logger=True, on_step=True, on_epoch=True)
@@ -298,7 +297,8 @@ class ViscoNetLDM(LatentDiffusion):
         for root_name in [sample_root, gt_root, src_root, concat_root]:
             os.makedirs(str(root_name), exist_ok=True)        
         # inference
-        images = self.log_images(batch, N=len(batch), ddim_steps=24, 
+        # NOTE: originally 25, but change ddim_step to 100 here for better results
+        images = self.log_images(batch, N=len(batch), ddim_steps=200, 
                                  unconditional_guidance_scale=14.0, sample=True)
         
         images['samples'] = torch.clamp(images['samples'].detach().cpu() * 0.5 + 0.5, 0., 1.1)
