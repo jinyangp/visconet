@@ -184,7 +184,8 @@ class ViscoNetLDM(LatentDiffusion):
 
     @torch.no_grad()
     def log_images(self, batch, N=2, n_row=2, sample=False, ddim_steps=40, ddim_eta=0.0, 
-                   plot_denoise_rows=False, plot_diffusion_rows=False, unconditional_guidance_scale=12.0,**kwargs):
+                   plot_denoise_rows=False, plot_diffusion_rows=False, unconditional_guidance_scale=12.0,
+                   log_ucg_ddimsteps_grid=False, ucg_values=None, ddim_steps_values=None,**kwargs):
         use_ddim = ddim_steps is not None
 
         log = dict()
@@ -274,6 +275,30 @@ class ViscoNetLDM(LatentDiffusion):
             # NOTE: In this case, we only need the reconstructed and generated samples
             log['concat'] = torch.cat((reconstructed, x_samples_cfg), dim=-2)
             
+        # TODO: Put code to log ucg and ddimsteps grid here
+        if log_ucg_ddimsteps_grid:
+            assert ucg_values and ddim_steps_values, "ucg_values and ddim_steps values must be provided to plot grid."
+
+            # STEP: Generate images
+            grid_images = []
+            for ucg in ucg_values:
+                for step in ddim_steps_values:
+                    # STEP: Get predicted original images
+                    # this returns a batch of images using the current ucg and ddim_step parameter
+                    sample_cfg, _ = self.sample_log(cond=cond, 
+                                                     batch_size=N, ddim=use_ddim,
+                                                     ddim_steps=step, eta=ddim_eta,
+                                                     unconditional_guidance_scale=ucg,
+                                                     unconditional_conditioning=un_cond
+                                                    )
+                    x_sample_cfg = self.decode_first_stage(sample_cfg) # shape: [B,C,H,W]
+                    grid_images.append(x_sample_cfg) # list of tensors with shape [B,C,H,W]
+
+            grid_images = torch.stack(grid_images, dim=0) # shape [NC,B,C,H,W] where NC is the number of combinations of parameters to test for
+            grid_images = grid_images.permute(1,0,2,3,4) # shape [B, NC, C, H, W]
+            # hee, we get a grid with NC number of images with NC being the number of combination of parameters for each sample in the batch
+            log['grids'] = grid_images
+
         return log
 
     @torch.no_grad()
@@ -286,7 +311,15 @@ class ViscoNetLDM(LatentDiffusion):
 
     @torch.no_grad()
     def test_step(self, batch, batch_idx):
-        # create folder
+        
+        # STEP: Determine whether to predict a grid of images for the different parameters
+        log_ucg_ddimsteps_grid = True
+        ucg_values = [10., 12.5, 15., 17.5, 20.]
+        ddim_steps_values = [40, 80, 120, 160, 200]
+        # we then make the grid and save it into files in the test_step function
+        # we also provide the labelling of the grid in the test_step function
+
+        # STEP: create folder
         f_ext = 'png'
         sample_root = Path(self.logger.save_dir)/'samples'
         gt_root = Path(self.logger.save_dir)/'gt'
@@ -296,20 +329,21 @@ class ViscoNetLDM(LatentDiffusion):
 
         for root_name in [sample_root, gt_root, src_root, concat_root]:
             os.makedirs(str(root_name), exist_ok=True)        
-        # inference
-        # NOTE: originally 25, but change ddim_step to 100 here for better results
-        images = self.log_images(batch, N=len(batch), ddim_steps=200, 
-                                 unconditional_guidance_scale=14.0, sample=True)
         
+        # STEP: inference
+        images = self.log_images(batch, N=len(batch), ddim_steps=100, 
+                                 unconditional_guidance_scale=14.0, sample=True,
+                                 log_ucg_ddimsteps_grid=log_ucg_ddimsteps_grid, ucg_values=ucg_values,
+                                 ddim_steps_values=ddim_steps_values)
+         
         images['samples'] = torch.clamp(images['samples'].detach().cpu() * 0.5 + 0.5, 0., 1.1)
         images['samples']/=(torch.max(torch.abs(images['samples'])))
 
         for k in ['src_img', 'jpg']:
             batch[k] = (rearrange(batch[k],'b h w c -> b c h w') + 1.0) / 2.0
 
-        # save ground truth, source, mask
-        # save samples
-        for  sample, fname, src_image, gt in \
+        # STEP: save samples
+        for sample, fname, src_image, gt in \
             zip(images['samples'], batch['fname'], batch['src_img'], batch['jpg']):
 
             #resized_mask = T.Resize(list(sample.shape[-2:]), T.InterpolationMode.NEAREST)(mask).to(sample.device)
@@ -331,7 +365,34 @@ class ViscoNetLDM(LatentDiffusion):
             T.ToPILImage()(src_image).save(src_root/f'{fname}.{f_ext}')
             T.ToPILImage()(gt).save(gt_root/f'{fname}.{f_ext}')
             #T.ToPILImage()(mask).save(mask_root/f'{fname}.{f_ext}')
-    
+
+        # STEP: save grids if we choose to
+        if log_ucg_ddimsteps_grid:
+
+            grid_root = Path(self.logger.save_dir)/'grid'
+            os.makedirs(str(grid_root), exist_ok=True)
+
+            # normalise values into the range of [0,1]            
+            images['grids'] = torch.clamp(images['grids'].detach().cpu() * 0.5 + 0.5, 0., 1.1)
+            images['grids']/=(torch.max(torch.abs(images['grids'])))
+            
+            # get labels of parameter combinations
+            # NOTE: not in use currently
+            labels = []
+            for ucg_scale in ucg_values:
+                for steps in ddim_steps_values:
+                    labels.append(f"ucg={ucg_scale}, ddim={steps}")
+
+            for grid, fname in zip(images["grids"], batch['fname']):
+                grid = torch.clamp(grid*255., min=0., max=255.) # to convert grid to range of [0,255]
+                img_grid = make_grid(grid, nrow=len(ucg_values), padding=5, pad_value=1.0)
+                img_grid_np = img_grid.permute(1,2,0).detach().cpu().numpy()
+                img_grid_np = img_grid_np.astype(np.uint8)
+                
+                filename=f'{fname}.{f_ext}'
+                path = os.path.join(grid_root, filename)
+                Image.fromarray(img_grid_np).save(path)
+
     def configure_optimizers(self):
         lr = self.learning_rate
         params = list(self.control_model.parameters())
