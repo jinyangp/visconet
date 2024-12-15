@@ -31,12 +31,16 @@ class StylesLogger(Callback):
         # STEP: Prepare images to make grid
         src_img_pils = batch["src_img_pil"]
         seg_img_pils = batch["seg_img_pil"]
+        target_img_pils = batch["target_img_pil"]
         imgs = []
 
-        src_pils = zip(src_img_pils, seg_img_pils)
+        src_pils = zip(src_img_pils, seg_img_pils, target_img_pils)
         
-        for src_img, seg_img in src_pils:
-            human_img_tensor, human_mask = pl_module.control_cond_model.human_segmentor(src_img)
+        for src_img, seg_img, target_img in src_pils:
+            # STEP: Get human mask from target image
+            _, human_mask = pl_module.control_cond_model.human_segmentor(target_img)
+            # STEP: Get style attributes from style image
+            human_img_tensor, _ = pl_module.control_cond_model.human_segmentor(src_img)
             if seg_img:
                 style_attrs = pl_module.control_cond_model.fashion_segmentor(human_img_tensor, seg_img=seg_img)
             else:
@@ -67,7 +71,7 @@ class StylesLogger(Callback):
             src_img = resize_img_tensor(src_img, self.grid_image_height, self.grid_image_width)
             
             # [7,C,H,W]
-            img = torch.cat((src_img, human_mask, style_attrs), dim=0).to(device)
+            img = torch.cat((human_mask, src_img, style_attrs), dim=0).to(device)
             imgs.append(img)
             # TO ENSURE: ALL IMAGE IN (C,H,W) with same width and height
 

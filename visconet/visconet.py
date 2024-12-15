@@ -69,16 +69,18 @@ class ViscoNetLDM(LatentDiffusion):
         # src_img_pils = batch["src_img_pil"]
         seg_img_pils = batch["seg_img_pil"]
         src_img_pils = batch["src_img_pil"]
+        target_img_pils = batch['target_img_pil']
         if bs is not None:
             # src_img_pils = src_img_pils[:bs]
             seg_img_pils = seg_img_pils[:bs]
             src_img_pils = src_img_pils[:bs]
+            target_img_pils = target_img_pils[:bs]
 
-        src_pils = zip(seg_img_pils, src_img_pils)
+        src_pils = zip(seg_img_pils, src_img_pils, target_img_pils)
         style_attrs = []
         human_masks = []
-        for seg_img, target_img in src_pils:
-            dct = self.control_cond_model(seg_img, target_img)
+        for seg_img, style_img, target_img in src_pils:
+            dct = self.control_cond_model(seg_img, style_img, target_img)
             style_attr_embeds = dct["style_attr_embeds"]
             human_mask = dct["human_mask"]
 
