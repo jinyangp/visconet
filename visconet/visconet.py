@@ -277,7 +277,6 @@ class ViscoNetLDM(LatentDiffusion):
             # NOTE: In this case, we only need the reconstructed and generated samples
             log['concat'] = torch.cat((reconstructed, x_samples_cfg), dim=-2)
             
-        # TODO: Put code to log ucg and ddimsteps grid here
         if log_ucg_ddimsteps_grid:
             assert ucg_values and ddim_steps_values, "ucg_values and ddim_steps values must be provided to plot grid."
 
@@ -376,7 +375,7 @@ class ViscoNetLDM(LatentDiffusion):
 
             # normalise values into the range of [0,1]            
             images['grids'] = torch.clamp(images['grids'].detach().cpu() * 0.5 + 0.5, 0., 1.1)
-            images['grids']/=(torch.max(torch.abs(images['grids'])))
+            images['grids'] /= (torch.max(torch.abs(images['grids'])))
             
             # get labels of parameter combinations
             # NOTE: not in use currently
