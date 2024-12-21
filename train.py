@@ -60,7 +60,7 @@ def main(args):
     logdir = os.path.join('./logs/', proj_name)
 
     # logger_freq = 500
-    learning_rate = num_gpus * (batch_size / 4) * 1e-5
+    learning_rate = num_gpus * (batch_size / 4) * 5e-5
     sd_locked = True
     only_mid_control = False
     
@@ -71,12 +71,15 @@ def main(args):
     model.sd_locked = sd_locked
     model.only_mid_control = only_mid_control
 
+    # NOTE: Weshould not reset attention laer weights if using improved architecture from the start
     # using baseline from scratch, using own/baseline model from trained checkpoint
-    if (resume_path == DEFAULT_CKPT and model.control_cond_model.use_baseline) or (resume_path != DEFAULT_CKPT): 
-        reset_crossattn = False
-    else:
-        reset_crossattn = True
+    # if (resume_path == DEFAULT_CKPT and model.control_cond_model.use_baseline) or (resume_path != DEFAULT_CKPT): 
+    #     reset_crossattn = False
+    # else:
+    #     reset_crossattn = True
 
+    # NOTE: In newest iteration, we never reset the cross attention layer weights
+    reset_crossattn = False
     # initialize cross attention weights
     if reset_crossattn:
         for name, module in model.control_model.named_modules():
@@ -120,9 +123,9 @@ def main(args):
                         callbacks=callbacks, 
                         accumulate_grad_batches=4,
                         default_root_dir=logdir,
-                        val_check_interval=1.0,
+                        # val_check_interval=1.0,
                         # val_check_interval=8000,
-                        #check_val_every_n_epoch=1,
+                        check_val_every_n_epoch=3,
                         num_sanity_val_steps=1,
                         max_epochs=max_epochs,
                         )
@@ -132,9 +135,9 @@ def main(args):
                         callbacks=callbacks, 
                         accumulate_grad_batches=4,
                         default_root_dir=logdir,
-                        val_check_interval=1.0,
+                        # val_check_interval=1.0,
                         # val_check_interval=8000,
-                        #check_val_every_n_epoch=1,
+                        check_val_every_n_epoch=3,
                         num_sanity_val_steps=1,
                         max_epochs=max_epochs,
                         )

@@ -8,11 +8,12 @@ from pytorch_lightning.utilities.distributed import rank_zero_only
 from visconet.control_cond_modules.util import resize_img_tensor
 
 class StylesLogger(Callback):
-    def __init__(self, train_batch_frequency=2000, val_batch_frequency=1000, folder_name="",
+    def __init__(self, train_batch_frequency=2000, val_batch_frequency=1000, test_batch_frequency=1, folder_name="",
                  disabled=False, image_height=224, image_width=224):
         super().__init__()
         self.train_batch_freq = train_batch_frequency
         self.val_batch_freq = val_batch_frequency
+        self.test_batch_freq = test_batch_frequency
         self.folder_name = os.path.join("image_log", folder_name)
         self.disabled = False
         self.grid_image_height = image_height
@@ -28,14 +29,18 @@ class StylesLogger(Callback):
         num_fashion_attrs = pl_module.control_cond_model.num_fashion_attrs
 
         # STEP: Prepare images to make grid
-        target_img_pils = batch["target_img_pil"]
+        src_img_pils = batch["src_img_pil"]
         seg_img_pils = batch["seg_img_pil"]
+        target_img_pils = batch["target_img_pil"]
         imgs = []
 
-        src_pils = zip(target_img_pils, seg_img_pils)
+        src_pils = zip(src_img_pils, seg_img_pils, target_img_pils)
         
-        for target_img, seg_img in src_pils:
-            human_img_tensor, human_mask = pl_module.control_cond_model.human_segmentor(target_img)
+        for src_img, seg_img, target_img in src_pils:
+            # STEP: Get human mask from target image
+            _, human_mask = pl_module.control_cond_model.human_segmentor(target_img)
+            # STEP: Get style attributes from style image
+            human_img_tensor, _ = pl_module.control_cond_model.human_segmentor(src_img)
             if seg_img:
                 style_attrs = pl_module.control_cond_model.fashion_segmentor(human_img_tensor, seg_img=seg_img)
             else:
@@ -62,11 +67,11 @@ class StylesLogger(Callback):
             human_mask = human_mask.repeat(3,1,1) # [3,224,224]
             human_mask = human_mask.unsqueeze(0) # [1,3,224,224]
 
-            target_img = torch.tensor(np.array(target_img)).to(device).permute(2,0,1).unsqueeze(0)
-            target_img = resize_img_tensor(target_img, self.grid_image_height, self.grid_image_width)
+            src_img = torch.tensor(np.array(src_img)).to(device).permute(2,0,1).unsqueeze(0)
+            src_img = resize_img_tensor(src_img, self.grid_image_height, self.grid_image_width)
             
             # [7,C,H,W]
-            img = torch.cat((target_img, human_mask, style_attrs), dim=0).to(device)
+            img = torch.cat((human_mask, src_img, style_attrs), dim=0).to(device)
             imgs.append(img)
             # TO ENSURE: ALL IMAGE IN (C,H,W) with same width and height
 
@@ -103,3 +108,9 @@ class StylesLogger(Callback):
             self.log_styles(pl_module, batch, batch_idx,
                             pl_module.global_step, pl_module.current_epoch,
                             split="val")
+            
+    def on_test_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
+        if not self.disabled and batch_idx % self.test_batch_freq == 0:
+            self.log_styles(pl_module, batch, batch_idx,
+                            pl_module.global_step, pl_module.current_epoch,
+                            split="test")
