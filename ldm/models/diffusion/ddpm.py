@@ -442,6 +442,7 @@ class DDPM(pl.LightningModule):
 
         loss, loss_dict = self.shared_step(batch)
 
+        # on_epoch logs the metrics at the end of every epoch where the metrics are averaged out
         self.log_dict(loss_dict, prog_bar=True,
                       logger=True, on_step=True, on_epoch=True)
 
@@ -904,8 +905,9 @@ class LatentDiffusion(DDPM):
 
         loss_simple = self.get_loss(model_output, target, mean=False)
         if 'c_concat_mask' in cond:
-            cond_mask = torch.cat(cond['c_concat_mask'], 1)
+            cond_mask = torch.cat(cond['c_concat_mask'], 1) # remove list
             resized_mask = T.Resize(list(loss_simple.shape[-2:]), T.InterpolationMode.NEAREST)(cond_mask)
+            resized_mask = resized_mask.unsqueeze(1)
             loss_simple *= resized_mask
         loss_simple = loss_simple.mean([1, 2, 3])
         loss_dict.update({f'{prefix}/loss_simple': loss_simple.mean()})

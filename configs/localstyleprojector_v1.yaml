@@ -1,0 +1,80 @@
+model:
+  target: visconet.control_cond_modules.module_main.LocalStyleProjector
+  params:
+    num_fashion_attrs: 5 # [face, hair, pants, upper clothes, shoes]
+    uncond_guidance: True
+    output_height: 512 # to match output dimensions of visconet
+    output_width: 512
+
+    # NOTE: To segment background and foreground first
+    human_segmentor_config:
+      target: visconet.control_cond_modules.module_human_segmentor.HumanSegmentor
+      params:
+        model_name: "resnet_101"
+        image_height: 768 # NOTE: found that larger images tend to be segmented by FashionSegmentor
+        image_width: 768 # NOTE: found that larger images tend to be segmented by FashionSegmentor
+        num_classes: 21
+
+    # NOTE: To get fashion attributes from source image by segmenting
+    fashion_segmentor_config:
+      target: visconet.control_cond_modules.module_fashion_segmentor.FashionSegmentor
+      params:
+        seg_processor: "mattmdjaga/segformer_b2_clothes" # "sayeed99/segformer_b3_clothes"
+        seg_model: "mattmdjaga/segformer_b2_clothes" # "sayeed99/segformer_b3_clothes"
+        valid_threshold: 0.002
+        output_shape: [224, 224]
+        ignore_labels:
+          - "Belt"
+          - "Scarf"
+          - "Bag"
+          - "Left-leg"
+          - "Right-leg"
+          - "Left-arm"
+          - "Right-arm"
+          - "Background"
+          - "Sunglasses"
+          - "Hat"
+        target_labels:
+          - "Face"
+          - "Hair"
+          - "Pants"
+          - "Upper-clothes"
+          - "Left-shoe"
+          - "Right-shoe"
+        default_seg_map_labels:
+          - 1: "top"
+          - 5: "pants"
+          - 11: "footwear"
+          - 13: "hair"
+          - 14: "face"
+
+    # NOTE:  To get image embeddings from fashion attributes
+    # for CLIP image encoder
+    image_encoder_config:
+      target: visconet.control_cond_modules.module_img_embeddor.CLIPImageEncoder
+      params:
+        encoder_type: "CLIP"
+        encoder_processor_name: "openai/clip-vit-large-patch14"
+        encoder_model_name: "openai/clip-vit-large-patch14"
+    # for DINO image encoder
+    # image_encoder_config:
+    #   target: visconet.control_cond_modules.module_img_embeddor.DINOImageEncoder
+    #   params:
+    #     encoder_type: "DINO"
+    #     encoder_processor_name: "facebook/dinov2-base"
+    #     encoder_model_name: "facebook/dinov2-base"
+
+    # NOTE: To resample image embeddings to get richer embeddings
+    resampler_config:
+      target: adapters.resampler.Resampler
+      params:
+        dim: 1024
+        depth: 8
+        dim_head: 64
+        heads: 16
+        num_queries: 4 # TODO: Currently fixed to 4 queries per attribute since we have 8 attributes
+        embedding_dim: 1024 # NOTE: Use 1024 with CLIP else 768 with DINO
+        output_dim: 1024
+        ff_mult: 4
+        max_input_seq_len: 257
+        apply_pos_emb: True
