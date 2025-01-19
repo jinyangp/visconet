@@ -54,9 +54,8 @@ class StylesLogger(Callback):
                 null_attrs = torch.zeros((num_null_attrs, ch, height, width), dtype=style_attrs.dtype).to(device)
                 style_attrs = torch.cat([style_attrs, null_attrs], dim=0)   
             # if we need to remove some fashion attributes  
-            elif num_null_attrs < 0:
+            elif num_null_attrs <= 0:
                 style_attrs = style_attrs[:num_fashion_attrs,:,:,:]
-
 
             # STEP: Resize human image tensor and source image to match style attributes so that
             # we can make image grid later

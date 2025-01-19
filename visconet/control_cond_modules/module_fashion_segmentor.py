@@ -183,24 +183,16 @@ class FashionSegmentor(nn.Module):
         '''
 
         # (num_attrs, 3, org_img_height, org_img_width)
-        masked_imgs = []            
+        masked_imgs = []    
+        # face portion (hair-13, face-14, headwear-7) -> [13,14,7],
+        # top portion (top-1, outer-2, dress-4) -> [1,2,4]
+        # bottom portion (skirt-3, dress-4, pants-5, leggings-6) -> [3,4,5,7]
+        # footwear portion (footwear - 11) -> [11] 
+        segment_region_ids = [[13,14,7], [1,2,4], [3,4,5,6], [11]]
 
-        present_ids = torch.unique(seg_img_tensor)
-        target_ids =  [k for k in target_label_dict.keys()]
-
-        # STEP: Iterate through list of ids we are trying to find
-        for _id in present_ids:
-            
-            # NOTE: We can skip _ids that are not in our target list
-            if _id.item() not in target_ids:
-                continue
-            
-            # print(f"Found id: {_id.item()} referring to class {target_label_dict[_id.item()]}") # TODO: Delete later, for debuggging
-
-            # STEP: Get mask for this particular key
-            mask = (seg_img_tensor == _id).to(torch.uint8)
-
-            # STEP: Apply mask for this particular key
+        for region in segment_region_ids:
+            target_ids_tensor = torch.tensor(region, device=self.device)
+            mask = torch.isin(seg_img_tensor, target_ids_tensor).to(torch.uint8)
             masked_img_tensor = org_img_tensor * mask.unsqueeze(0)
 
             # STEP: Convert masked image tensor back to numpy
@@ -209,7 +201,6 @@ class FashionSegmentor(nn.Module):
                 masked_img_org_vals = torch.squeeze(masked_img_org_vals, 0)
                 masked_img_org_vals_np = masked_img_org_vals.permute(1,2,0).cpu().numpy()
                 masked_img_org_vals_np = (masked_img_org_vals_np * 255).astype(np.uint8)
-
             else:
                 masked_img_org_vals_np = masked_img_tensor.permute(1,2,0).cpu().numpy().astype(np.uint8)
 
@@ -219,27 +210,7 @@ class FashionSegmentor(nn.Module):
 
             # STEP: Only check for validity if we are using the HF segmentation model and add this attribute to output array if the number of pixels is above valid threshold
             if not use_seg_model or self.is_attr_valid(masked_img_org_vals_np):
-
-                # print(f"Found and valid id: {_id.item()} referring to class {target_label_dict[_id.item()]}") # TODO: Delete later, for debuggging
-                
-                # STEP: If output_dir provided, save the processed np array as image
-                # NOTE: This section saves the segmented image to disk. Commented out for now.
-                # if output_dir:
-                        
-                #     full_output_dir = os.path.join(os.getcwd(), output_dir)
-                #     if not os.path.exists(full_output_dir):
-                #         os.makedirs(full_output_dir)
-                        
-                #     label_name = target_label_dict[_id.item()]
-                #     filename = f'{label_name}-{_id.item()}.png' 
-                #     full_fp = os.path.join(full_output_dir, filename)
-
-                #     masked_img_pil = Image.fromarray(masked_img_org_vals_np)
-                #     masked_img_pil.save(full_fp)
-
-                # # STEP: To fill the pixels belonging to background with a lighter colour other than black to make it more gentle for the model
-                # masked_img_org_vals_np[(masked_img_org_vals_np == [0, 0, 0]).all(axis=-1)] = (178,178,178)
-                
+                                
                 # STEP: Append the processed np array converted to a tensor to res array
                 masked_img_org_vals_tensor = torch.from_numpy(masked_img_org_vals_np)
                 masked_img_org_vals_tensor = masked_img_org_vals_tensor.permute(2,0,1)
@@ -252,7 +223,7 @@ class FashionSegmentor(nn.Module):
             return torch.cat(masked_imgs, dim=0).to(self.device)
         else:
             print("Fashion Segmentor detected no fashion attributes!")
-            return torch.zeros(5, 3, 224, 224, dtype=torch.float32).to(self.device)
+            return torch.zeros(4, 3, 224, 224, dtype=torch.float32).to(self.device)
 
     @torch.no_grad()
     def forward(self,
