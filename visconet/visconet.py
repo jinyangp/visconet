@@ -314,7 +314,7 @@ class ViscoNetLDM(LatentDiffusion):
     def test_step(self, batch, batch_idx):
         
         # STEP: Determine whether to predict a grid of images for the different parameters
-        log_ucg_ddimsteps_grid = True
+        log_ucg_ddimsteps_grid = False
         ucg_values = [10., 12.5, 15., 17.5, 20.]
         ddim_steps_values = [40, 80, 120, 160, 200]
         # we then make the grid and save it into files in the test_step function
