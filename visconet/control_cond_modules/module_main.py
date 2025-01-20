@@ -19,6 +19,7 @@ class LocalStyleProjector(nn.Module):
                 image_encoder_config,
                 resampler_config,
                 num_fashion_attrs:int=5,
+                embed_source:bool=False,
                 uncond_guidance:bool=True,
                 output_height:int=512, # to match output dimensions of visconet
                 output_width:int=512,
@@ -38,6 +39,7 @@ class LocalStyleProjector(nn.Module):
         self.resampler = instantiate_from_config(resampler_config)
         
         self.num_fashion_attrs = num_fashion_attrs
+        self.embed_source = embed_source
         self.uncond_guidance = uncond_guidance
         
         self.output_height = output_height
@@ -102,6 +104,12 @@ class LocalStyleProjector(nn.Module):
         elif num_null_attrs <= 0:
             style_attrs = style_attrs[:self.num_fashion_attrs,:,:,:]
 
+        # if self.embed_source:
+        #     style_attr_height, style_attr_width = style_attrs.shape[2], style_attrs.shape[3]
+        #     human_img_tensor = human_img_tensor.unsqueeze(0)
+        #     human_img_tensor = resize_img_tensor(human_img_tensor, style_attr_height, style_attr_width)
+        #     style_attrs = torch.cat([human_img_tensor, style_attrs], dim=0)
+        
         # STEP: Encode the fashion attributes
         # output shape: [num_fashion_attrs, 257, 1024] if using CLIP embeddor
         # output shape: [num_fashion_attrs, 257, 768] if using DINO embeddor
