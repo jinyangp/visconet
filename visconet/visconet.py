@@ -15,8 +15,8 @@ from visconet.control_cond_modules.util import resize_img_tensor
 
 class ViscoNetLDM(LatentDiffusion):
 
-    def __init__(self, control_stage_config, control_key, only_mid_control, control_cond_config, src_encoder_config,
-                 control_crossattn_key, mask_key=None, enable_mask=True, p_cg=None, use_bias=False, *args, **kwargs):
+    def __init__(self, control_stage_config, control_key, only_mid_control, control_cond_config,
+                 control_crossattn_key, src_encoder_config=None, mask_key=None, enable_mask=True, p_cg=None, use_bias=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.control_model = instantiate_from_config(control_stage_config)
         self.control_key = control_key # image pose prompt - for openpose
@@ -62,7 +62,7 @@ class ViscoNetLDM(LatentDiffusion):
 
         ret_dict = dict(c_text=[c_text], c_concat=[control])
         if self.use_bias:
-            ret_dict = dict(c_src=x, c_text=[c_text], c_concat=[control])
+            ret_dict = dict(c_src=[x], c_text=[c_text], c_concat=[control])
 
         def format_input(key):
             val = batch[key]
@@ -180,7 +180,7 @@ class ViscoNetLDM(LatentDiffusion):
             # NOTE: We are using the ControlledUnetModel class in the config file which overrides original forward method o 
             # UNET to use control and only_mid_control arguments
             
-            if cond['c_src']:
+            if 'c_src' in cond.keys():
                 src = torch.cat(cond['c_src'], 1) # for bias, to be used in decoder
                 biases = self.src_encoder(src)
                 eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=control, bias=biases, only_mid_control=self.only_mid_control)

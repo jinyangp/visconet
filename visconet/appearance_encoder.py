@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
 
-from ldm.modules.attention import BasicTransformerBlock
+from einops import rearrange
+from diffusers.models.attention import BasicTransformerBlock
 
 class AppearanceEncoder(nn.Module):
 
@@ -36,7 +37,8 @@ class AppearanceEncoder(nn.Module):
         depth 3, block 1, input shape of (B,1280,16,16)
         depth 3, block 2, input shape of (B,1280,16,16)
         '''
-
+        super().__init__()
+        
         self.in_channels = in_channels
         self.model_channels = model_channels
         self.depth = depth
@@ -45,7 +47,7 @@ class AppearanceEncoder(nn.Module):
         if num_heads == -1:
            assert num_head_channels != -1, "Either num_heads or num_heads_channels must be provided."
         if num_head_channels != -1:
-           assert embed_dims % num_head_channels != 0, "embed_dims must be perfectly divisible by num_head_channels."
+           assert embed_dims % num_head_channels == 0, "embed_dims must be perfectly divisible by num_head_channels."
         
         self.num_heads_channels = num_head_channels
         self.transformer_depth = transformer_depth
@@ -60,11 +62,12 @@ class AppearanceEncoder(nn.Module):
         for mult_factor in channel_mult:
            
            conv_modules.append(nn.Conv2d(ch, model_channels*mult_factor, kernel_size=3, stride=2, padding=1))
-           zero_convin.extend([nn.Conv2d(ch*mult_factor, embed_dims*mult_factor, kernel_size=1, stride=1, padding=0) for _ in range(self.num_res_blocks)])
+           zero_convin.extend([nn.Conv2d(ch, embed_dims*mult_factor, kernel_size=1, stride=1, padding=0) for _ in range(self.num_res_blocks)])
            zero_convout.extend([nn.Conv2d(embed_dims*mult_factor, self.context_dim, kernel_size=1, stride=1, padding=0) for _ in range(self.num_res_blocks)])          
            transformer_layers = nn.Sequential(*[BasicTransformerBlock(dim=embed_dims*mult_factor,
-                                                            n_heads=(embed_dims*mult_factor/self.num_heads_channels),
-                                                            d_head=self.num_heads_channels)
+                                                            num_attention_heads=(embed_dims*mult_factor//self.num_heads_channels),
+                                                            attention_head_dim=self.num_heads_channels,
+                                                            double_self_attention=True)
                                                             for _ in range(self.transformer_depth)])
            transformer_blocks.extend([transformer_layers for _ in range(self.num_res_blocks)])
            ch = model_channels*mult_factor
@@ -91,14 +94,24 @@ class AppearanceEncoder(nn.Module):
         for i in range(len(self.channel_mult)*self.num_res_blocks):
             
             conv_in = self.zero_convin[i]
-            transformer_layers = self.tranformer_blocks[i]
+            transformer_layers = self.transformer_blocks[i]
             conv_out = self.zero_convout[i]
             features = feature_maps[i]
 
+            # shape: [B,C,H,W] -> [B,C,H,W]
             features = conv_in(features)
             for layer in transformer_layers:
+                # features input: [B,C,H,W]
+                # input shape required by transformer block: [B, H*W, C]
+                # output shape required by transformer block: [B, H*W, C]
+                b,c,h,w = features.shape
+                # Rearrange features from [b, c, h, w] to [b, h*w, c]
+                features = features.permute(0, 2, 3, 1).contiguous().view(b, h * w, c)
+                # Pass through the layer
                 features = layer(features)
+                # Rearrange features back from [b, h*w, c] to [b, c, h, w]
+                features = features.view(b, h, w, c).permute(0, 3, 1, 2)
             features = conv_out(features)
             outs.append(features)
 
-        return outs 
+        return outs
