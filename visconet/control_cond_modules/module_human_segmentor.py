@@ -1,6 +1,7 @@
 import os
-import argparse
+import cv2
 import torch
+import argparse
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
@@ -14,20 +15,36 @@ class HumanSegmentor(nn.Module):
     
     def __init__(self,
                  model_name: str,
-                 image_height: int = 768,
-                 image_width: int = 768,
-                 num_classes: int = 21):
+                 image_height: int = 512,
+                 image_width: int = 512,
+                 num_classes: int = 21,
+                 blur_mask: bool = True,
+                 dilate_kernel_size: int = 5,
+                 dilate_iterations: int = 10,
+                 blur_kernel_size: int = 25,
+                 max_distance: int = 30,
+                 distance_scale: str = 'linear',
+                 distance_scale_factor: float = 3
+                 ):
         
         super().__init__()
         if model_name not in ("resnet_50", "resnet_101"):
             raise ValueError("Model name provided is invalid. Please use resnet_50 or resnet_101.")
 
         self.model_name = model_name
-
         self.image_height = image_height
         self.image_width = image_width
-
         self.num_classes = num_classes
+    
+        self.blur_mask = blur_mask
+        self.dilate_kernel_size = dilate_kernel_size
+        self.dilate_iterations = dilate_iterations
+        self.blur_kernel_size = blur_kernel_size
+        self.max_distance = max_distance
+        self.distance_scale = distance_scale
+        
+        if self.distance_scale == "exp":
+            self.distance_scale_factor = distance_scale_factor
 
         if model_name == "resnet_101":
             self.model = deeplabv3_resnet101(weights=DeepLabV3_ResNet101_Weights.DEFAULT,
@@ -44,6 +61,32 @@ class HumanSegmentor(nn.Module):
             params.requires_grad = False
 
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    def postprocess(self, human_mask):
+
+        '''
+        Takes in a human_mask which is a torch tensor, performs postprocessing on the mask and returns the processed mask.
+        '''
+
+        human_mask = human_mask.permute(1,2,0).squeeze(0)
+        human_mask = (human_mask.cpu().numpy()*255).astype(np.uint8)
+        
+        # step 1: dilate
+        dilate_kernel = np.ones((self.dilate_kernel_size, self.dilate_kernel_size), np.uint8)
+        human_mask = cv2.dilate(human_mask, dilate_kernel, iterations=self.dilate_iterations)
+        # step 2: blur
+        human_mask = cv2.blur(human_mask, (self.blur_kernel_size, self.blur_kernel_size))
+        # step 3: distance transform
+        distances = cv2.distanceTransform(human_mask, cv2.DIST_L2, 5)
+        distance_normalised = np.clip(distances/self.max_distance, 0, 1)
+        
+        if self.distance_scale == "linear":
+            human_mask = (distance_normalised)
+        elif self.distance_scale == "exp":
+            human_mask = (1. - np.exp(-self.distance_scale_factor * distance_normalised))
+        
+        human_mask = torch.tensor(human_mask, dtype=torch.float32).to(self.device)
+        return human_mask
 
     @torch.no_grad()
     def get_segmentation_masks(self,
@@ -64,6 +107,8 @@ class HumanSegmentor(nn.Module):
         # NOTE: 0 for background, 15 for human
         human_mask = (preds == 15).float()  # Assuming class label 15 represents 'person'
         background_mask = (preds == 0).float()  # Assuming class label 0 represents 'background'
+
+        # NOTE: human_mask is of shape [H,W]
 
         # Convert masks to images and save
         if output_dir:
@@ -86,9 +131,9 @@ class HumanSegmentor(nn.Module):
     def forward(self,
                 img: Image.Image,
                 output_dir:str=None):
-        
-        img = img.resize((self.image_width, self.image_height))
     
+        img = img.resize((self.image_width, self.image_height))
+
         human_mask, background_mask = self.get_segmentation_masks(img,output_dir=output_dir)
         human_mask = human_mask.unsqueeze(0)
         # background_mask = background_mask.unsqueeze(0)
@@ -99,5 +144,9 @@ class HumanSegmentor(nn.Module):
 
         # background_img_tensor = img_tensor * background_mask
         # background_img_tensor = background_img_tensor.squeeze(0)
-
-        return human_img_tensor, human_mask.squeeze(0)
+        
+        if self.blur_mask:
+            human_processed_mask = self.postprocess(human_mask.squeeze(0))
+            return human_img_tensor, human_processed_mask
+        else:
+            return human_img_tensor, human_mask.squeeze(0)
