@@ -16,7 +16,8 @@ from visconet.control_cond_modules.util import resize_img_tensor
 class ViscoNetLDM(LatentDiffusion):
 
     def __init__(self, control_stage_config, control_key, only_mid_control, control_cond_config,
-                 control_crossattn_key, src_encoder_config=None, mask_key=None, enable_mask=True, p_cg=None, use_bias=False, *args, **kwargs):
+                 control_crossattn_key, src_encoder_config=None, mask_key=None, enable_mask=True, p_cg=None, use_bias=False,
+                 bias_mask_only=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.control_model = instantiate_from_config(control_stage_config)
         self.control_key = control_key # image pose prompt - for openpose
@@ -35,6 +36,7 @@ class ViscoNetLDM(LatentDiffusion):
             self.cg_prng = np.random.RandomState()
 
         self.use_bias = use_bias
+        self.bias_mask_only = bias_mask_only
         if self.use_bias:
             self.src_encoder = instantiate_from_config(src_encoder_config)
 
@@ -42,7 +44,6 @@ class ViscoNetLDM(LatentDiffusion):
     # NOTE: get_input() and apply_model() are used behind the scenes in the training_step which is a necessary step needed to be implemented to use Pytorch Lightning
     # .fit() function
     '''
-
     @torch.no_grad()
     def get_input(self, batch, k, bs=None, *args, **kwargs):
         # STEP: Get latents of image and text embeddings
@@ -61,8 +62,6 @@ class ViscoNetLDM(LatentDiffusion):
         # STEP: Start to format a dictionary to give to model
 
         ret_dict = dict(c_text=[c_text], c_concat=[control])
-        if self.use_bias:
-            ret_dict = dict(c_src=[x], c_text=[c_text], c_concat=[control])
 
         def format_input(key):
             val = batch[key]
@@ -100,6 +99,18 @@ class ViscoNetLDM(LatentDiffusion):
         if self.mask_key:
             ret_dict["c_concat_mask"] = [torch.stack(human_masks,dim=0)]
 
+        if self.use_bias:
+            if self.bias_mask_only:
+                src_img_masks = []
+                for src_img in src_img_pils:
+                    src_img_mask, _ = self.control_cond_model.human_segmentor(src_img)
+                    encoder_posterior = self.encode_first_stage(src_img_mask.unsqueeze(0))
+                    src_x = self.get_first_stage_encoding(encoder_posterior).detach()
+                    src_img_masks.append(src_x.squeeze(0))
+                ret_dict['c_src'] = [torch.stack(src_img_masks, dim=0)]
+            else:
+                ret_dict["c_src"] = [x]
+  
         # NOTE: Old way
         # -------
         # if self.control_crossattn_key:
@@ -328,7 +339,7 @@ class ViscoNetLDM(LatentDiffusion):
     def test_step(self, batch, batch_idx):
         
         # STEP: Determine whether to predict a grid of images for the different parameters
-        log_ucg_ddimsteps_grid = True
+        log_ucg_ddimsteps_grid = False
         ucg_values = [10., 12.5, 15., 17.5, 20.]
         ddim_steps_values = [40, 80, 120, 160, 200]
         # we then make the grid and save it into files in the test_step function
