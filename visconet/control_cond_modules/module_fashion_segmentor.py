@@ -19,6 +19,7 @@ class FashionSegmentor(nn.Module):
                 seg_model: str,
                 valid_threshold: float = 0.002,
                 output_shape: Tuple[int, int] = (224,224),
+                coarse_segmentation: bool = True,
                 ignore_labels: List[str] = ["Belt", "Scarf", "Bag", "Left-leg",
                                              "Right-leg", "Left-arm", "Right-arm",
                                              "Background", "Sunglasses"],
@@ -60,6 +61,7 @@ class FashionSegmentor(nn.Module):
 
         self.img_size = img_size # 224,224
         self.output_shape = output_shape # 224,224
+        self.coarse_segmentation = coarse_segmentation
         self.model_ignore_labels = ignore_labels
         self.model_target_labels = target_labels
 
@@ -183,42 +185,82 @@ class FashionSegmentor(nn.Module):
         '''
 
         # (num_attrs, 3, org_img_height, org_img_width)
-        masked_imgs = []    
-        # face portion (hair-13, face-14, headwear-7) -> [13,14,7],
-        # top portion (top-1, outer-2, dress-4) -> [1,2,4]
-        # bottom portion (skirt-3, dress-4, pants-5, leggings-6) -> [3,4,5,7]
-        # footwear portion (footwear - 11) -> [11] 
-        segment_region_ids = [[13,14,7], [1,2,4], [3,4,5,6], [11]]
+        masked_imgs = []
 
-        for region in segment_region_ids:
-            target_ids_tensor = torch.tensor(region, device=self.device)
-            mask = torch.isin(seg_img_tensor, target_ids_tensor).to(torch.uint8)
-            masked_img_tensor = org_img_tensor * mask.unsqueeze(0)
+        if self.coarse_segmentation:
 
-            # STEP: Convert masked image tensor back to numpy
             if use_seg_model:
-                masked_img_org_vals = self._reverse_normalise(masked_img_tensor, mask)
-                masked_img_org_vals = torch.squeeze(masked_img_org_vals, 0)
-                masked_img_org_vals_np = masked_img_org_vals.permute(1,2,0).cpu().numpy()
-                masked_img_org_vals_np = (masked_img_org_vals_np * 255).astype(np.uint8)
+                # face portion (hair-2, face-11, headwear-1) -> [2,11,1],
+                # top portion (upper-clothes-4, dress-7) -> [4,7],
+                # bottom portion (skirt-5, dress-7, pants-6) -> [5,6,7]
+                # footwear portion (left-shoe-9, right-shoe-10) -> [9,10] 
+                segment_region_ids = [[2,11,1], [4,7], [5,6,7], [9,10]]
             else:
-                masked_img_org_vals_np = masked_img_tensor.permute(1,2,0).cpu().numpy().astype(np.uint8)
+                # face portion (hair-13, face-14, headwear-7) -> [13,14,7],
+                # top portion (top-1, outer-2, dress-4) -> [1,2,4]
+                # bottom portion (skirt-3, dress-4, pants-5, leggings-6) -> [3,4,5,6]
+                # footwear portion (footwear - 11) -> [11] 
+                segment_region_ids = [[13,14,7], [1,2,4], [3,4,5,6], [11]]
 
-            # STEP: Crop, Resize and Centralise attributes - Processed np array
-            masked_img_org_vals_np = self._crop_and_recentre(masked_img_org_vals_np,
-                                                            new_img_size=self.output_shape)
+            for region in segment_region_ids:
+                target_ids_tensor = torch.tensor(region, device=self.device)
+                mask = torch.isin(seg_img_tensor, target_ids_tensor).to(torch.uint8)
+                masked_img_tensor = org_img_tensor * mask.unsqueeze(0)
 
-            # STEP: Only check for validity if we are using the HF segmentation model and add this attribute to output array if the number of pixels is above valid threshold
-            if not use_seg_model or self.is_attr_valid(masked_img_org_vals_np):
-                                
-                # STEP: Append the processed np array converted to a tensor to res array
-                masked_img_org_vals_tensor = torch.from_numpy(masked_img_org_vals_np)
-                masked_img_org_vals_tensor = masked_img_org_vals_tensor.permute(2,0,1)
-                masked_img_org_vals_tensor = masked_img_org_vals_tensor.unsqueeze(0)
+                # STEP: Convert masked image tensor back to numpy
+                if use_seg_model:
+                    masked_img_org_vals = self._reverse_normalise(masked_img_tensor, mask)
+                    masked_img_org_vals = torch.squeeze(masked_img_org_vals, 0)
+                    masked_img_org_vals_np = masked_img_org_vals.permute(1,2,0).cpu().numpy()
+                    masked_img_org_vals_np = (masked_img_org_vals_np * 255).astype(np.uint8)
+                else:
+                    masked_img_org_vals_np = masked_img_tensor.permute(1,2,0).cpu().numpy().astype(np.uint8)
 
-                masked_imgs.append(masked_img_org_vals_tensor)
+                # STEP: Crop, Resize and Centralise attributes - Processed np array
+                masked_img_org_vals_np = self._crop_and_recentre(masked_img_org_vals_np,
+                                                                new_img_size=self.output_shape)
 
-        # STEP: Concate all tensors in the res arr and return
+                # STEP: Only check for validity if we are using the HF segmentation model and add this attribute to output array if the number of pixels is above valid threshold
+                if not use_seg_model or self.is_attr_valid(masked_img_org_vals_np):
+                                    
+                    # STEP: Append the processed np array converted to a tensor to res array
+                    masked_img_org_vals_tensor = torch.from_numpy(masked_img_org_vals_np)
+                    masked_img_org_vals_tensor = masked_img_org_vals_tensor.permute(2,0,1)
+                    masked_img_org_vals_tensor = masked_img_org_vals_tensor.unsqueeze(0)
+
+                    masked_imgs.append(masked_img_org_vals_tensor)
+
+        else:
+            present_ids = torch.unique(seg_img_tensor)
+            target_ids =  [k for k in target_label_dict.keys()]
+            
+            for _id in present_ids:
+
+                if _id.item() not in target_ids:
+                    continue
+
+                mask = (seg_img_tensor == _id).to(torch.uint8)
+                masked_img_tensor = org_img_tensor * mask.unsqueeze(0)
+
+                if use_seg_model:
+                    masked_img_org_vals = self._reverse_normalise(masked_img_tensor, mask)
+                    masked_img_org_vals = torch.squeeze(masked_img_org_vals, 0)
+                    masked_img_org_vals_np = masked_img_org_vals.permute(1,2,0).cpu().numpy()
+                    masked_img_org_vals_np = (masked_img_org_vals_np * 255).astype(np.uint8)
+                else:
+                    masked_img_org_vals_np = masked_img_tensor.permute(1,2,0).cpu().numpy().astype(np.uint8)
+
+                masked_img_org_vals_np = self._crop_and_recentre(masked_img_org_vals_np,
+                                                                new_img_size=self.output_shape)
+                
+                if not use_seg_model or self.is_attr_valid(masked_img_org_vals_np):
+
+                    masked_img_org_vals_tensor = torch.from_numpy(masked_img_org_vals_np)
+                    masked_img_org_vals_tensor = masked_img_org_vals_tensor.permute(2,0,1)
+                    masked_img_org_vals_tensor = masked_img_org_vals_tensor.unsqueeze(0)
+
+                    masked_imgs.append(masked_img_org_vals_tensor)
+
         if masked_imgs:
             return torch.cat(masked_imgs, dim=0).to(self.device)
         else:

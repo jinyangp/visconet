@@ -18,6 +18,7 @@ class HumanSegmentor(nn.Module):
                  image_height: int = 512,
                  image_width: int = 512,
                  num_classes: int = 21,
+                 blur_mask: bool = True,
                  dilate_kernel_size: int = 5,
                  dilate_iterations: int = 10,
                  blur_kernel_size: int = 25,
@@ -35,6 +36,7 @@ class HumanSegmentor(nn.Module):
         self.image_width = image_width
         self.num_classes = num_classes
     
+        self.blur_mask = blur_mask
         self.dilate_kernel_size = dilate_kernel_size
         self.dilate_iterations = dilate_iterations
         self.blur_kernel_size = blur_kernel_size
@@ -83,7 +85,6 @@ class HumanSegmentor(nn.Module):
         elif self.distance_scale == "exp":
             human_mask = (1. - np.exp(-self.distance_scale_factor * distance_normalised))
         
-        print(torch.unique(human_mask))
         human_mask = torch.tensor(human_mask, dtype=torch.float32).to(self.device)
         return human_mask
 
@@ -134,7 +135,6 @@ class HumanSegmentor(nn.Module):
         img = img.resize((self.image_width, self.image_height))
 
         human_mask, background_mask = self.get_segmentation_masks(img,output_dir=output_dir)
-        human_processed_mask = self.postprocess(human_mask)
         human_mask = human_mask.unsqueeze(0)
         # background_mask = background_mask.unsqueeze(0)
 
@@ -144,5 +144,9 @@ class HumanSegmentor(nn.Module):
 
         # background_img_tensor = img_tensor * background_mask
         # background_img_tensor = background_img_tensor.squeeze(0)
-
-        return human_img_tensor, human_processed_mask
+        
+        if self.blur_mask:
+            human_processed_mask = self.postprocess(human_mask.squeeze(0))
+            return human_img_tensor, human_processed_mask
+        else:
+            return human_img_tensor, human_mask.squeeze(0)

@@ -144,3 +144,5 @@ dmypy.json
 
 # Ignore deepfashion dataset
 data/datasets
+
+*.pth
