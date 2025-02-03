@@ -20,6 +20,7 @@ model:
     use_ema: False
     only_mid_control: False
     p_cg: 0.95 # this means the probability of using guided training
+    use_bias: True
 
     scheduler_config:
       target: torch.optim.lr_scheduler.ReduceLROnPlateau
@@ -33,10 +34,24 @@ model:
         threshold: 0.001
         verbose: True
 
+    src_encoder_config:
+      target: visconet.appearance_encoder.AppearanceEncoder
+      params:
+        in_channels: 4 # as per the number of channels outputted from the VAE
+        model_channels: 320 # as per the UNET architecture
+        depth: 1
+        embed_dims: 256
+        context_dim: 1024 # as per the UNET architecture
+        channel_mult: [1, 2, 4] # as per the UNET architecture
+        transformer_depth: 1
+        num_head_channels: 64
+        num_res_blocks: 3 # as per the UNET architecture
+        get_featuremaps_method: "attn"
+
     control_cond_config:
       target: visconet.control_cond_modules.module_main.LocalStyleProjector
       params:
-        num_fashion_attrs: 7
+        num_fashion_attrs: 4
         uncond_guidance: True
         output_height: 512 # to match output dimensions of visconet
         output_width: 512
@@ -46,10 +61,15 @@ model:
           target: visconet.control_cond_modules.module_human_segmentor.HumanSegmentor
           params:
             model_name: "resnet_101"
-            image_height: 768 # NOTE: found that larger images tend to be segmented by FashionSegmentor
-            image_width: 768 # NOTE: found that larger images tend to be segmented by FashionSegmentor
+            image_height: 512 # NOTE: found that larger images tend to be segmented by FashionSegmentor
+            image_width: 512 # NOTE: found that larger images tend to be segmented by FashionSegmentor
             num_classes: 21
-            blur_mask: False
+            dilate_kernel_size: 5
+            dilate_iterations: 8
+            blur_kernel_size: 25
+            max_distance: 30
+            distance_scale: "exp"
+            distance_scale_factor: 3
 
         # NOTE: To get fashion attributes from source image by segmenting
         fashion_segmentor_config:
@@ -59,7 +79,6 @@ model:
             seg_model: "mattmdjaga/segformer_b2_clothes" # "sayeed99/segformer_b3_clothes"
             valid_threshold: 0.002
             output_shape: [224, 224]
-            coarse_segmentation: False
             ignore_labels:
               - "Belt"
               - "Scarf"
@@ -93,19 +112,19 @@ model:
 
         # NOTE:  To get image embeddings from fashion attributes
         # for CLIP image encoder
-        image_encoder_config:
-          target: visconet.control_cond_modules.module_img_embeddor.CLIPImageEncoder
-          params:
-            encoder_type: "CLIP"
-            encoder_processor_name: "openai/clip-vit-large-patch14"
-            encoder_model_name: "openai/clip-vit-large-patch14"
-        # for DINO image encoder
         # image_encoder_config:
-        #   target: visconet.control_cond_modules.module_img_embeddor.DINOImageEncoder
+        #   target: visconet.control_cond_modules.module_img_embeddor.CLIPImageEncoder
         #   params:
-        #     encoder_type: "DINO"
-        #     encoder_processor_name: "facebook/dinov2-base"
-        #     encoder_model_name: "facebook/dinov2-base"
+        #     encoder_type: "CLIP"
+        #     encoder_processor_name: "openai/clip-vit-large-patch14"
+        #     encoder_model_name: "openai/clip-vit-large-patch14"
+        # for DINO image encoder
+        image_encoder_config:
+          target: visconet.control_cond_modules.module_img_embeddor.DINOImageEncoder
+          params:
+            encoder_type: "DINO"
+            encoder_processor_name: "facebook/dinov2-base"
+            encoder_model_name: "facebook/dinov2-base"
 
         # NOTE: To resample image embeddings to get richer embeddings
         resampler_config:
@@ -115,8 +134,8 @@ model:
             depth: 8
             dim_head: 64
             heads: 16
-            num_queries: 16
-            embedding_dim: 1024 # NOTE: Use 1024 with CLIP else 768 with DINO
+            num_queries: 32
+            embedding_dim: 768 # NOTE: Use 1024 with CLIP else 768 with DINO
             output_dim: 1024
             ff_mult: 4
             max_input_seq_len: 257
@@ -221,4 +240,4 @@ dataset:
       map_file: "./data/deepfashion/deepfashion_multimodal_map_sample.csv"
       data_files:
         # - "./data/deepfashion/pairs-test-all_solo_multimodal_sample.csv" # to and from are the same
-        - "./data/deepfashion/benchmark-test-pairs-metrics.csv" # to and from are different
+        - "./data/deepfashion/pairs-test-all_pairs_multimodal_sample.csv" # to and from are different

@@ -49,6 +49,7 @@ model:
             image_height: 768 # NOTE: found that larger images tend to be segmented by FashionSegmentor
             image_width: 768 # NOTE: found that larger images tend to be segmented by FashionSegmentor
             num_classes: 21
+            blur_mask: False
 
         # NOTE: To get fashion attributes from source image by segmenting
         fashion_segmentor_config:
@@ -58,6 +59,7 @@ model:
             seg_model: "mattmdjaga/segformer_b2_clothes" # "sayeed99/segformer_b3_clothes"
             valid_threshold: 0.002
             output_shape: [224, 224]
+            coarse_segmentation: False
             ignore_labels:
               - "Belt"
               - "Scarf"
@@ -213,4 +215,4 @@ dataset:
       data_files:
         # - "./data/deepfashion/pairs-test-all_solo_multimodal_sample.csv" # to and from are the same
         # - "./data/deepfashion/pairs-test-all_pairs_multimodal_sample.csv" # to and from are different
-        - "./data/deepfashion/benchmark-test-pairs.csv" # benchmark test
+        - "./data/deepfashion/benchmark-test-pairs-metrics.csv" # benchmark test

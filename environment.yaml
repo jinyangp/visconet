@@ -38,3 +38,4 @@ dependencies:
       - git+https://github.com/openai/CLIP.git
       - triton
       - huggingface_hub>=0.16.4
+      - torchmetrics[image]
