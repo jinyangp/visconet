@@ -49,9 +49,9 @@ class LocalStyleProjector(nn.Module):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         
     def forward(self,
-                seg_img: Image.Image,
                 style_img: Image.Image,
                 target_img: Image.Image,
+                seg_img: Image.Image=None,
                 output_dir: str=None):
 
         '''

@@ -86,7 +86,7 @@ class ViscoNetLDM(LatentDiffusion):
         style_attrs = []
         human_masks = []
         for seg_img, style_img, target_img in src_pils:
-            dct = self.control_cond_model(seg_img, style_img, target_img)
+            dct = self.control_cond_model(style_img, target_img, seg_img=seg_img)
             style_attr_embeds = dct["style_attr_embeds"]
             human_mask = dct["human_mask"]
 
@@ -109,7 +109,8 @@ class ViscoNetLDM(LatentDiffusion):
                     src_img_masks.append(src_x.squeeze(0))
                 ret_dict['c_src'] = [torch.stack(src_img_masks, dim=0)]
             else:
-                ret_dict["c_src"] = [x]
+                src_x, _ = super().get_input(batch, "src_img", *args, **kwargs)
+                ret_dict["c_src"] = [src_x]
   
         # NOTE: Old way
         # -------
@@ -423,6 +424,8 @@ class ViscoNetLDM(LatentDiffusion):
         lr = self.learning_rate
         params = list(self.control_model.parameters())
         params += list(self.control_cond_model.parameters())
+        if self.use_bias:
+            params += list(self.src_encoder.parameters())
         if not self.sd_locked:
             params += list(self.model.diffusion_model.output_blocks.parameters())
             params += list(self.model.diffusion_model.out.parameters())
