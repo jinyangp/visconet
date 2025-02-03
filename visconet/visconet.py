@@ -15,8 +15,9 @@ from visconet.control_cond_modules.util import resize_img_tensor
 
 class ViscoNetLDM(LatentDiffusion):
 
-    def __init__(self, control_stage_config, control_key, only_mid_control, control_cond_config, 
-                 control_crossattn_key, mask_key=None, enable_mask=True, p_cg=None, *args, **kwargs):
+    def __init__(self, control_stage_config, control_key, only_mid_control, control_cond_config,
+                 control_crossattn_key, src_encoder_config=None, mask_key=None, enable_mask=True, p_cg=None, use_bias=False,
+                 bias_mask_only=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.control_model = instantiate_from_config(control_stage_config)
         self.control_key = control_key # image pose prompt - for openpose
@@ -34,11 +35,15 @@ class ViscoNetLDM(LatentDiffusion):
         if self.p_cg: # NOTE: If ucg is to be used, assign a value of 0.05 in config YAML file
             self.cg_prng = np.random.RandomState()
 
+        self.use_bias = use_bias
+        self.bias_mask_only = bias_mask_only
+        if self.use_bias:
+            self.src_encoder = instantiate_from_config(src_encoder_config)
+
     '''
     # NOTE: get_input() and apply_model() are used behind the scenes in the training_step which is a necessary step needed to be implemented to use Pytorch Lightning
     # .fit() function
     '''
-
     @torch.no_grad()
     def get_input(self, batch, k, bs=None, *args, **kwargs):
         # STEP: Get latents of image and text embeddings
@@ -55,6 +60,7 @@ class ViscoNetLDM(LatentDiffusion):
         control = control.to(memory_format=torch.contiguous_format).float()
         
         # STEP: Start to format a dictionary to give to model
+
         ret_dict = dict(c_text=[c_text], c_concat=[control])
 
         def format_input(key):
@@ -80,7 +86,7 @@ class ViscoNetLDM(LatentDiffusion):
         style_attrs = []
         human_masks = []
         for seg_img, style_img, target_img in src_pils:
-            dct = self.control_cond_model(seg_img, style_img, target_img)
+            dct = self.control_cond_model(style_img, target_img, seg_img=seg_img)
             style_attr_embeds = dct["style_attr_embeds"]
             human_mask = dct["human_mask"]
 
@@ -93,6 +99,19 @@ class ViscoNetLDM(LatentDiffusion):
         if self.mask_key:
             ret_dict["c_concat_mask"] = [torch.stack(human_masks,dim=0)]
 
+        if self.use_bias:
+            if self.bias_mask_only:
+                src_img_masks = []
+                for src_img in src_img_pils:
+                    src_img_mask, _ = self.control_cond_model.human_segmentor(src_img)
+                    encoder_posterior = self.encode_first_stage(src_img_mask.unsqueeze(0))
+                    src_x = self.get_first_stage_encoding(encoder_posterior).detach()
+                    src_img_masks.append(src_x.squeeze(0))
+                ret_dict['c_src'] = [torch.stack(src_img_masks, dim=0)]
+            else:
+                src_x, _ = super().get_input(batch, "src_img", *args, **kwargs)
+                ret_dict["c_src"] = [src_x]
+  
         # NOTE: Old way
         # -------
         # if self.control_crossattn_key:
@@ -147,8 +166,8 @@ class ViscoNetLDM(LatentDiffusion):
         cond_txt = torch.cat(cond['c_text'], 1) # remove list
         cond_cross = torch.cat(cond['c_crossattn'], 1) 
         cond_mask = torch.cat(cond['c_concat_mask'], 1)
-        cond_concat = torch.cat(cond['c_concat'], 1) # the openpose pose
-
+        cond_concat = torch.cat(cond['c_concat'], 1) # the openpose pose 
+       
         if cond['c_concat'] is None:
             eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=None, only_mid_control=self.only_mid_control)
         else:
@@ -173,9 +192,15 @@ class ViscoNetLDM(LatentDiffusion):
             # NOTE: We are using the ControlledUnetModel class in the config file which overrides original forward method o 
             # UNET to use control and only_mid_control arguments
             
+            if 'c_src' in cond.keys():
+                src = torch.cat(cond['c_src'], 1) # for bias, to be used in decoder
+                biases = self.src_encoder(src)
+                eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=control, bias=biases, only_mid_control=self.only_mid_control)
+
             # STEP: If IP-Adapter is being used here, we concatenate them along the same dimension and chunk them for processing
             # concatenate by torch.cat((cond_text,cond_img), dim=1)
-            eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=control, only_mid_control=self.only_mid_control)
+            else:
+                eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=control, only_mid_control=self.only_mid_control)
 
         return eps
 
@@ -307,6 +332,7 @@ class ViscoNetLDM(LatentDiffusion):
 
         b, c, h, w = cond["c_concat"][0].shape
         shape = (self.channels, h // 8, w // 8)
+        # TODO: Need to find a way to pass in the source image (as a tensor ready for processing by VAE) as part of the conditions too
         samples, intermediates = self.ddim_sampler.sample(ddim_steps, batch_size, shape, cond, verbose=False, **kwargs)
         return samples, intermediates
 
@@ -398,6 +424,8 @@ class ViscoNetLDM(LatentDiffusion):
         lr = self.learning_rate
         params = list(self.control_model.parameters())
         params += list(self.control_cond_model.parameters())
+        if self.use_bias:
+            params += list(self.src_encoder.parameters())
         if not self.sd_locked:
             params += list(self.model.diffusion_model.output_blocks.parameters())
             params += list(self.model.diffusion_model.out.parameters())
