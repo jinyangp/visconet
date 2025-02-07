@@ -22,6 +22,10 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='Description of your program')
 
+    '''
+    srun -p rtx3090_slab -n 1 --job-name=test --gres=gpu:1 --kill-on-bad-exit=1 python3 -u tool_get_metrics.py ./data/deepfashion/benchmark-test-pairs-metrics.csv logs/011224-expt1-baseline-final-metrics logs 011224-expt1-metrics visconet_v5_pair --gpus 0
+    '''
+    
     # Adding arguments
     parser.add_argument('data_csv_fp', type=str)
     parser.add_argument("samples_dir", type=str)
@@ -46,7 +50,7 @@ if __name__ == "__main__":
     # STEP: Iterate through the csv file to collect all images
     for idx, row in tqdm(data_df.iterrows(), total=len(data_df), desc="Loading images"):
         fname = get_name(row['from'], row['to'])
-        src_path = os.path.join(samples_dir, "src", f'{fname}.{f_ext}')
+        src_path = os.path.join(samples_dir, "src", f'{fname}.{f_ext}') # NOTE: Need src image in the "src" directory
         sample_path = os.path.join(samples_dir, "samples", f'{fname}.{f_ext}')
         
         # Load and transform images
