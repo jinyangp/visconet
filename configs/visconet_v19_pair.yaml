@@ -20,6 +20,8 @@ model:
     use_ema: False
     only_mid_control: False
     p_cg: 0.95 # this means the probability of using guided training
+    use_bias: True
+    bias_mask_only: True
 
     scheduler_config:
       target: torch.optim.lr_scheduler.ReduceLROnPlateau
@@ -32,6 +34,20 @@ model:
         min_lr: 0.00001
         threshold: 0.001
         verbose: True
+
+    src_encoder_config:
+      target: visconet.appearance_encoder.AppearanceEncoder
+      params:
+        in_channels: 4 # as per the number of channels outputted from the VAE
+        model_channels: 320 # as per the UNET architecture
+        depth: 1
+        embed_dims: 256
+        context_dim: 1024 # as per the UNET architecture
+        channel_mult: [1, 2, 4] # as per the UNET architecture
+        transformer_depth: 3
+        num_head_channels: 64
+        num_res_blocks: 3 # as per the UNET architecture
+        get_featuremaps_method: "attn"
 
     control_cond_config:
       target: visconet.control_cond_modules.module_main.LocalStyleProjector
@@ -202,9 +218,9 @@ dataset:
       image_root: "./data/datasets/deepfashion"
       image_dir: imgs
       style_dir: seg_imgs
-      map_file: "./data/deepfashion/deepfashion_multimodal_map_sample.csv"
+      map_file: "./data/deepfashion/deepfashion_multimodal_map_all.csv"
       data_files:
-        - "./data/deepfashion/pairs-train-all_multimodal_sample.csv" # to and from are the same
+        - "./data/deepfashion/pairs-train-11000.csv" # to and from are the same
 
   val:
     target: visconet.deepfashion.DeepFashionDataset
@@ -212,7 +228,7 @@ dataset:
       image_root: "./data/datasets/deepfashion"
       image_dir: imgs
       style_dir: seg_imgs
-      map_file: "./data/deepfashion/deepfashion_multimodal_map_sample.csv"
+      map_file: "./data/deepfashion/deepfashion_multimodal_map_all.csv"
       data_files:
         - "./data/deepfashion/pairs-test-all_solo_multimodal_sample.csv" # to and from are the same
 
@@ -222,8 +238,8 @@ dataset:
       image_root: "./data/datasets/deepfashion"
       image_dir: imgs
       style_dir: seg_imgs
-      map_file: "./data/deepfashion/deepfashion_multimodal_map_sample.csv"
+      map_file: "./data/deepfashion/deepfashion_multimodal_map_all.csv"
       data_files:
         # - "./data/deepfashion/pairs-test-all_solo_multimodal_sample.csv" # to and from are the same
-        # - "./data/deepfashion/pairs-test-all_pairs_multimodal_sample.csv" # to and from are different # 100 samples tesy
-        - "./data/deepfashion/benchmark-test-pairs-metrics.csv" # to and from are different # metrics generation
+        - "./data/deepfashion/pairs-test-all_pairs_multimodal_sample.csv" # to and from are different # 100 test samples
+        # - "./data/deepfashion/benchmark-test-pairs-metrics.csv" # benchmark for metrics
