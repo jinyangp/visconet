@@ -147,12 +147,11 @@ class DeepFashionDataset(Loader):
             target_image = self.image_tform(target_pil)
 
             # STEP: Get text prompt
-            prompt = "a person."
+            prompt = "a person. plain studio background." 
 
             # NOTE: We use the target image as jpg key (noisy latents passed to UNET) and also derive the styles, target pose and mask from target image
-            # Goal is to reconstruct the target image using the segmented target styles, target pose and mask from the target image
+            # Goal is to reconstruct the tadrget image using the segmented target styles, target pose and mask from the target image
             return dict(jpg=target_image, # tensor
-                        # jpg=source_image,
                         txt=prompt, # text
                         hint=pose_image, # tensor
                         src_img=source_image, # tensor
