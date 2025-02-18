@@ -21,6 +21,7 @@ from cldm.ddim_hacked import DDIMSampler
 from einops import rearrange
 from annotator.openpose.get_pose_hf import get_openpose_annotations
 from torchvision import transforms as T
+from torchvision.utils import make_grid
 
 def log_sample(seed, results, prompt, skeleton_image,  mask_image, control_scales, *viscon_images):
     time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -101,7 +102,7 @@ if __name__ == "__main__":
     parser.add_argument("--eta", type=float, default=0., help="eta value that controls how much noise is added to image at each reverse step in diffusion process")
     
     parser.add_argument("--controlnet_scales", type=valid_float_list, default=[1.0]*13, help="Comma-separated list of 13 float values between 0.0 and 1.0")
-
+    parser.add_argument("--log_controlnet_bias_scales_grid", action="store_true", help="Whether to log a grid for different controlnet and bias scales.")
     args = parser.parse_args()
 
     # STEP: Get the file path to the source and target image
@@ -109,6 +110,9 @@ if __name__ == "__main__":
     tgt_img = Image.open(os.path.join(os.getcwd(), args.tgt_image_fp))
     seg_img = Image.open(os.path.join(os.getcwd(), args.seg_image_fp)) if args.seg_image_fp else None
 
+    if args.output_dir:
+        os.makedirs(os.path.join(os.getcwd(), args.output_dir), exist_ok=True)
+    
     # STEP: Initialise model and load it in to device
     device = f'cuda:{args.gpu}' if torch.cuda.is_available() else 'cpu'
     config_file = args.config
@@ -141,7 +145,7 @@ if __name__ == "__main__":
     dct = model.control_cond_model(src_img, tgt_img, seg_img=seg_img)
     style_attrs_embeds, human_mask = dct["style_attr_embeds"].to(device), dct["human_mask"].to(device)
     style_attrs_embeds = style_attrs_embeds.unsqueeze(0).repeat(num_samples,1,1)
-    human_mask = human_mask.unsqueeze(0).repeat(num_samples,1,1)
+    human_mask = human_mask.unsqueeze(0).repeat(num_samples,1,1) # TODO: Create one variable for the repeated and not repeated version
 
     # STEP: Settle text prompts
     model.cond_stage_model.device = device # Load embeddor for text prompt
@@ -194,6 +198,47 @@ if __name__ == "__main__":
     x_samples = (einops.rearrange(x_samples, 'b c h w -> b h w c') * 127.5 + 127.5).cpu().numpy().clip(0, 255).astype(np.uint8)
 
     results = [x_samples[i] for i in range(num_samples)]
+
+    control_net_scales = [i*0.2 for i in range(0,6)] # [i*0.2 for i in range(1,6)]
+    bias_scales = [i*0.2 for i in range(0,6)] # [i*0.2 for i in range(1,6)] 
+    if args.log_controlnet_bias_scales_grid:
+        assert control_net_scales and bias_scales, "ucg_values and ddim_steps values must be provided to plot grid."
+
+        if config.save_memory:
+            model.low_vram_shift(is_diffusing=True)
+
+        # STEP: Generate images
+        grid_images = []
+        for cs in control_net_scales:
+            for bs in bias_scales:
+                    
+                control_scales = [cs]*13
+                model.control_scales = control_scales   
+                model.bias_scale = bs
+                
+                samples, _ = ddim_sampler.sample(args.ddim_steps, num_samples, latent_shape,
+                                    cond, verbose=False, eta=args.eta,
+                                    unconditional_guidance_scale=args.cfg_scale,
+                                    unconditional_conditioning=un_cond)
+                
+                x_samples = model.decode_first_stage(samples)
+                grid_images.append(x_samples)
+
+            if config.save_memory:
+                model.low_vram_shift(is_diffusing=False)
+
+        grid_images = torch.stack(grid_images, dim=0) # shape [NC,B,C,H,W] where NC is the number of combinations of parameters to test for
+        grid_images = grid_images.permute(1,0,2,3,4) # shape [B, NC, C, H, W]
+        grid_images = torch.clamp(grid_images.detach().cpu() * 0.5 + 0.5, 0., 1.)
+        grid_images = torch.clamp(grid_images*255., min=0., max=255.) # to convert grid to range of [0,255]
+        img_grid = make_grid(grid_images.squeeze(0), nrow=len(control_net_scales), padding=5, pad_value=1.0)
+        img_grid_np = img_grid.permute(1,2,0).detach().cpu().numpy()
+        img_grid_np = img_grid_np.astype(np.uint8)
+
+        if args.output_dir:
+            filename='controlnet_bias_scales_grid.png'
+            path = os.path.join(args.output_dir, filename)
+            Image.fromarray(img_grid_np).save(path)
 
     if args.output_dir:
         os.makedirs(os.path.join(os.getcwd(), args.output_dir), exist_ok=True)
