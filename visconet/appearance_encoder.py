@@ -60,7 +60,6 @@ class AppearanceEncoder(nn.Module):
 
         ch = model_channels
         # make modules to get feature maps
-        # TODO: For conv method, add normalisation and non-linear activation after every Conv layer
         if self.get_featuremaps_method == "conv":
            for mult_factor in channel_mult[1:]:
                conv_modules.append(nn.Conv2d(ch, model_channels*mult_factor, kernel_size=3, stride=2, padding=1))
