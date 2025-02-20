@@ -56,6 +56,7 @@ model:
         uncond_guidance: True
         output_height: 512 # to match output dimensions of visconet
         output_width: 512
+        piecewise_segment: False
 
         # NOTE: To segment background and foreground first
         human_segmentor_config:
@@ -241,5 +242,5 @@ dataset:
       map_file: "./data/deepfashion/deepfashion_multimodal_map_all.csv"
       data_files:
         # - "./data/deepfashion/pairs-test-all_solo_multimodal_sample.csv" # to and from are the same
-        - "./data/deepfashion/pairs-test-all_pairs_multimodal_sample.csv" # to and from are different # 100 test samples
-        # - "./data/deepfashion/benchmark-test-pairs-metrics.csv" # benchmark for metrics
+        # - "./data/deepfashion/pairs-test-all_pairs_multimodal_sample.csv" # to and from are different # 100 test samples
+        - "./data/deepfashion/benchmark-test-pairs-metrics.csv" # benchmark for metrics

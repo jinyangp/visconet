@@ -56,6 +56,7 @@ model:
         uncond_guidance: True
         output_height: 512 # to match output dimensions of visconet
         output_width: 512
+        piecewise_segment: False
 
         # NOTE: To segment background and foreground first
         human_segmentor_config:
@@ -135,7 +136,7 @@ model:
             depth: 8
             dim_head: 64
             heads: 16
-            num_queries: 16
+            num_queries: 32
             embedding_dim: 768 # NOTE: Use 1024 with CLIP else 768 with DINO
             output_dim: 1024
             ff_mult: 4
@@ -241,5 +242,5 @@ dataset:
       map_file: "./data/deepfashion/deepfashion_multimodal_map_all.csv"
       data_files:
         # - "./data/deepfashion/pairs-test-all_solo_multimodal_sample.csv" # to and from are the same
-        - "./data/deepfashion/pairs-test-all_pairs_multimodal_sample.csv" # to and from are different # 100 test samples
-        # - "./data/deepfashion/benchmark-test-pairs-metrics.csv" # benchmark for metrics
+        # - "./data/deepfashion/pairs-test-all_pairs_multimodal_sample.csv" # to and from are different # 100 test samples
+        - "./data/deepfashion/benchmark-test-pairs-metrics.csv" # benchmark for metrics
