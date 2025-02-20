@@ -24,6 +24,7 @@ class ViscoNetLDM(LatentDiffusion):
         self.control_crossattn_key = control_crossattn_key # image pose prompt - for fashion attribute styles
         self.only_mid_control = only_mid_control
         self.control_scales = [1.0] * 13
+        self.bias_scale = 1.0
         self.enable_mask = enable_mask
         self.mask_enables = [1 if enable_mask else 0] * 13
         self.mask_key = mask_key
@@ -195,6 +196,7 @@ class ViscoNetLDM(LatentDiffusion):
             if 'c_src' in cond.keys():
                 src = torch.cat(cond['c_src'], 1) # for bias, to be used in decoder
                 biases = self.src_encoder(src)
+                biases = [b*self.bias_scale for b in biases]
                 eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=control, bias=biases, only_mid_control=self.only_mid_control)
 
             # STEP: If IP-Adapter is being used here, we concatenate them along the same dimension and chunk them for processing
@@ -400,7 +402,7 @@ class ViscoNetLDM(LatentDiffusion):
             os.makedirs(str(grid_root), exist_ok=True)
 
             # normalise values into the range of [0,1]            
-            images['grids'] = torch.clamp(images['grids'].detach().cpu() * 0.5 + 0.5, 0., 1.1)
+            images['grids'] = torch.clamp(images['grids'].detach().cpu() * 0.5 + 0.5, 0., 1.)
             images['grids'] /= (torch.max(torch.abs(images['grids'])))
             
             # get labels of parameter combinations

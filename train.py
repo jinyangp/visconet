@@ -54,6 +54,7 @@ def main(args):
     proj_name = args.name
     max_epochs = args.max_epochs
     batch_size = args.batch_size
+    grad_acc = args.grad_acc
     num_gpus = len(gpus)
     num_workers = num_gpus * batch_size
 
@@ -97,7 +98,8 @@ def main(args):
     dataset = instantiate_from_config(config.dataset.train)
     val_dataset = instantiate_from_config(config.dataset.val)
     dataloader = DataLoader(dataset, num_workers=num_workers, batch_size=batch_size, collate_fn=custom_collate_fn, shuffle=True, pin_memory=True)
-    val_dataloader = DataLoader(val_dataset, num_workers=num_workers, batch_size=batch_size, collate_fn=custom_collate_fn, shuffle=False, pin_memory=True)
+    val_dataloader = DataLoader(val_dataset, num_workers=num_workers, batch_size=batch_size, collate_fn=custom_collate_fn, shuffle=True, pin_memory=True)
+    # set to False if want to investigate repeated generation over the same image
         
     # callbacks
     # NOTE: Determine frequency of train and validation batch frequency
@@ -121,7 +123,7 @@ def main(args):
         trainer = pl.Trainer(accelerator="gpu", devices=gpus, strategy="ddp",
                         precision=32,
                         callbacks=callbacks, 
-                        accumulate_grad_batches=4,
+                        accumulate_grad_batches=grad_acc,
                         default_root_dir=logdir,
                         # val_check_interval=1.0,
                         # val_check_interval=8000,
@@ -133,7 +135,7 @@ def main(args):
         trainer = pl.Trainer(accelerator="gpu", devices=gpus,
                         precision=32,
                         callbacks=callbacks, 
-                        accumulate_grad_batches=4,
+                        accumulate_grad_batches=grad_acc,
                         default_root_dir=logdir,
                         # val_check_interval=1.0,
                         # val_check_interval=8000,
@@ -156,6 +158,7 @@ if __name__ == "__main__":
     parser.add_argument('--gpus', nargs='+', type=int, default=[1])
     parser.add_argument('--max_epochs', type=int, default=20)
     parser.add_argument('--batch_size', type=int, default=4)
+    parser.add_argument('--grad_acc', type=int, default=4)
     # Parsing arguments
     args = parser.parse_args()
 

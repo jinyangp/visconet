@@ -9,8 +9,8 @@ from torchmetrics.image.fid import FrechetInceptionDistance
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 
 image_tform = T.Compose([
-    T.PILToTensor(), # Converts PIL to tensor in range of [0,1]
-    T.Resize(256)
+    T.Resize((256,256)),
+    T.PILToTensor() # Converts PIL to tensor in range of [0,1]
 ])
 
 def calculate_ssim(preds,
@@ -34,7 +34,7 @@ def calculate_ssim(preds,
         targets = torch.stack([image_tform(img) for img in targets])
 
     # NOTE: 1. is the optimal value
-    ssim = StructuralSimilarityIndexMeasure(data_range=1., reduction=aggregate)
+    ssim = StructuralSimilarityIndexMeasure(reduction=aggregate)
     return ssim(preds,targets)
 
 def calculate_lpips(preds,

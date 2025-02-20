@@ -215,4 +215,4 @@ dataset:
       data_files:
         # - "./data/deepfashion/pairs-test-all_solo_multimodal_sample.csv" # to and from are the same
         # - "./data/deepfashion/pairs-test-all_pairs_multimodal_sample.csv" # to and from are different
-        - "./data/deepfashion/benchmark-test-pairs.csv" # benchmark test
+        - "./data/deepfashion/benchmark-test-pairs-metrics.csv" # benchmark test

@@ -57,6 +57,10 @@ def main(args):
     model.sd_locked = sd_locked
     model.only_mid_control = only_mid_control
 
+    # NOTE: Determine if we want to blur the mask
+    if args.use_exact_mask:
+        model.control_cond_model.human_segmentor.blur_mask = False
+
     # initialize cross attention weights
     if reset_crossattn:
         for name, module in model.control_model.named_modules():
@@ -101,7 +105,7 @@ if __name__ == "__main__":
     parser.add_argument('--gpus', nargs='+', type=int, default=[1])
     parser.add_argument('--max_epochs', type=int, default=1)
     parser.add_argument('--batch_size', type=int, default=5)
-    
+    parser.add_argument('--use_exact_mask', action="store_true", help="Whether to use the exact mask of human segmentor.")
     
     # Parsing arguments
     args = parser.parse_args()

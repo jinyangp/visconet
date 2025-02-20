@@ -23,7 +23,8 @@ class LocalStyleProjector(nn.Module):
                 uncond_guidance:bool=True,
                 output_height:int=512, # to match output dimensions of visconet
                 output_width:int=512,
-                use_baseline: bool=False
+                use_baseline: bool=False,
+                piecewise_segment: bool=True
                 ):
         '''
         This class contains the following blocks:
@@ -46,6 +47,7 @@ class LocalStyleProjector(nn.Module):
         self.output_width = output_width
 
         self.use_baseline = use_baseline
+        self.piecewise_segment = piecewise_segment
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         
     def forward(self,
@@ -78,57 +80,60 @@ class LocalStyleProjector(nn.Module):
         # STEP: Segment style image into human and bg then style attributes to get style attributes
         human_img_tensor, _ = self.human_segmentor(style_img, output_dir=output_dir)
 
-        # STEP: Segment the target image for fashion attributes
-        # output_shape: [num_detected_attrs, 3, 224, 224] where 0 <= num_detected_attrs <= num_fashion_attrs
-        # if we already have the segmentation map for fasihon attributes,
-        if seg_img:
-            style_attrs = self.fashion_segmentor(human_img_tensor, seg_img=seg_img, output_dir=output_dir)
-        # else, if we need to manually segment,
-        else:
-            style_attrs = self.fashion_segmentor(human_img_tensor, output_dir=output_dir)
+        # STEP: Segment the target image for fashion attributes if piecewise_segment is set to true
+        if self.piecewise_segment:
+            # output_shape: [num_detected_attrs, 3, 224, 224] where 0 <= num_detected_attrs <= num_fashion_attrs
+            # if we already have the segmentation map for fasihon attributes,
+            if seg_img:
+                style_attrs = self.fashion_segmentor(human_img_tensor, seg_img=seg_img, output_dir=output_dir)
+            # else, if we need to manually segment,
+            else:
+                style_attrs = self.fashion_segmentor(human_img_tensor, output_dir=output_dir)
 
-        # print(f'Segmented style attrs shape: {style_attrs.shape}')
-        
-        # output_shape: [num_fashion_attrs, 3, 224, 224]
-        num_attrs = style_attrs.shape[0]
-        num_null_attrs = self.num_fashion_attrs - num_attrs
-
-        # if we need to pad with resampled attrs,
-        if num_null_attrs > 0:
-            # STEP: To resample from retrieved attributes rather than adding 0 matrices
-            resample_indices = torch.randint(0, num_attrs, (num_null_attrs,))
-            resampled_tensor = style_attrs[resample_indices]
-            style_attrs = torch.cat([style_attrs, resampled_tensor], dim=0)
+            # print(f'Segmented style attrs shape: {style_attrs.shape}')
             
-        # if we need to remove some fashion attributes  
-        elif num_null_attrs <= 0:
-            style_attrs = style_attrs[:self.num_fashion_attrs,:,:,:]
+            # output_shape: [num_fashion_attrs, 3, 224, 224]
+            num_attrs = style_attrs.shape[0]
+            num_null_attrs = self.num_fashion_attrs - num_attrs
 
-        # if self.embed_source:
-        #     style_attr_height, style_attr_width = style_attrs.shape[2], style_attrs.shape[3]
-        #     human_img_tensor = human_img_tensor.unsqueeze(0)
-        #     human_img_tensor = resize_img_tensor(human_img_tensor, style_attr_height, style_attr_width)
-        #     style_attrs = torch.cat([human_img_tensor, style_attrs], dim=0)
+            # if we need to pad with resampled attrs,
+            if num_null_attrs > 0:
+                # STEP: To resample from retrieved attributes rather than adding 0 matrices
+                resample_indices = torch.randint(0, num_attrs, (num_null_attrs,))
+                resampled_tensor = style_attrs[resample_indices]
+                style_attrs = torch.cat([style_attrs, resampled_tensor], dim=0)
+                
+            # if we need to remove some fashion attributes  
+            elif num_null_attrs <= 0:
+                style_attrs = style_attrs[:self.num_fashion_attrs,:,:,:]
+
+            # STEP: Encode the fashion attributes
+            # output shape: [num_fashion_attrs, 257, 1024] if using CLIP embeddor
+            # output shape: [num_fashion_attrs, 257, 768] if using DINO embeddor
+            style_attrs_embed = self.image_encoder(style_attrs) 
+
+            # STEP: Resample the embeddings
+            if self.use_baseline:
+                # NOTE: In this case, we use the original local style projector in the original Visconet
+                # From ebeddings of shape [bs, num_fashion_attrs, 257, 1024] -> [bs, num_fashion_attrs*pool_size, 1024] where the pretrained weights used a value of 9 for pool_size
+                style_attrs_embed = style_attrs_embed.unsqueeze(0)
+                resampled_style_attrs_embed = self.resampler(style_attrs_embed)            
+                resampled_style_attrs_embed = resampled_style_attrs_embed.squeeze(0)
+
+            else:
+                # NOTE: In this case, we use the newly designed LocalStyleProjector where
+                # output shape: [num_fashion_attrs*num_queries, 1024]
+                # [num_fashion_attrs, num_queries, 1024]
+                resampled_style_attrs_embed = self.resampler(style_attrs_embed)
+                # [num_fashion_attrs, num_queries, 1024] -> [num_fashion_attrs*num_queries, 1024]
+                resampled_style_attrs_embed = rearrange(resampled_style_attrs_embed, 'b n d -> (b n) d')
         
-        # STEP: Encode the fashion attributes
-        # output shape: [num_fashion_attrs, 257, 1024] if using CLIP embeddor
-        # output shape: [num_fashion_attrs, 257, 768] if using DINO embeddor
-        style_attrs_embed = self.image_encoder(style_attrs) 
-
-        # STEP: Resample the embeddings
-        if self.use_baseline:
-            # NOTE: In this case, we use the original local style projector in the original Visconet
-            # From ebeddings of shape [bs, num_fashion_attrs, 257, 1024] -> [bs, num_fashion_attrs*pool_size, 1024] where the pretrained weights used a value of 9 for pool_size
-            style_attrs_embed = style_attrs_embed.unsqueeze(0)
-            resampled_style_attrs_embed = self.resampler(style_attrs_embed)            
-            resampled_style_attrs_embed = resampled_style_attrs_embed.squeeze(0)
-
         else:
-            # NOTE: In this case, we use the newly designed LocalStyleProjector where
-            # output shape: [num_fashion_attrs*num_queries, 1024]
-            # [num_fashion_attrs, num_queries, 1024]
-            resampled_style_attrs_embed = self.resampler(style_attrs_embed)
-            # [num_fashion_attrs, num_queries, 1024] -> [num_fashion_attrs*num_queries, 1024]
+            # pass human_img_tensor in the shape of [1,3,224,224] with pixels in the original pixel ranges
+            human_img_tensor = resize_img_tensor(img_tensor=human_img_tensor, resized_height=224, resized_width=224)
+            human_img_tensor = torch.clamp(human_img_tensor/255., 0., 1.)
+            human_img_embed = self.image_encoder(human_img_tensor)
+            resampled_style_attrs_embed = self.resampler(human_img_embed)
             resampled_style_attrs_embed = rearrange(resampled_style_attrs_embed, 'b n d -> (b n) d')
 
         # STEP: Reshape human mask to match input shape of visconet
