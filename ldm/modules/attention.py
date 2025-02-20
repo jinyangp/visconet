@@ -318,7 +318,7 @@ class SpatialTransformer(nn.Module):
             self.proj_out = zero_module(nn.Linear(in_channels, inner_dim))
         self.use_linear = use_linear
 
-    def forward(self, x, context=None):
+    def forward(self, x, context=None, bias=None):
         # note: if no context is given, cross-attention defaults to self-attention
         if not isinstance(context, list):
             context = [context]
@@ -331,6 +331,8 @@ class SpatialTransformer(nn.Module):
         if self.use_linear:
             x = self.proj_in(x)
         for i, block in enumerate(self.transformer_blocks):
+            if bias:
+                x = x + bias
             x = block(x, context=context[i])
         if self.use_linear:
             x = self.proj_out(x)

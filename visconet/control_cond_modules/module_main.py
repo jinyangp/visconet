@@ -19,6 +19,7 @@ class LocalStyleProjector(nn.Module):
                 image_encoder_config,
                 resampler_config,
                 num_fashion_attrs:int=5,
+                embed_source:bool=False,
                 uncond_guidance:bool=True,
                 output_height:int=512, # to match output dimensions of visconet
                 output_width:int=512,
@@ -39,6 +40,7 @@ class LocalStyleProjector(nn.Module):
         self.resampler = instantiate_from_config(resampler_config)
         
         self.num_fashion_attrs = num_fashion_attrs
+        self.embed_source = embed_source
         self.uncond_guidance = uncond_guidance
         
         self.output_height = output_height

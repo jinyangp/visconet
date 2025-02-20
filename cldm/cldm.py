@@ -18,9 +18,8 @@ from ldm.models.diffusion.ddpm import LatentDiffusion
 from ldm.util import log_txt_as_img, exists, instantiate_from_config
 from ldm.models.diffusion.ddim import DDIMSampler
 
-
 class ControlledUnetModel(UNetModel):
-    def forward(self, x, timesteps=None, context=None, control=None, only_mid_control=False, **kwargs):
+    def forward(self, x, timesteps=None, context=None, control=None, bias=None, only_mid_control=False, **kwargs):
         hs = []
         with torch.no_grad():
             t_emb = timestep_embedding(timesteps, self.model_channels, repeat_only=False)
@@ -39,7 +38,12 @@ class ControlledUnetModel(UNetModel):
                 h = torch.cat([h, hs.pop()], dim=1)
             else:
                 h = torch.cat([h, hs.pop() + control.pop()], dim=1)
-            h = module(h, emb, context)
+            
+            if bias and any(isinstance(layer, SpatialTransformer) for layer in module):
+                b = bias.pop()
+                h = module(h, emb, context, bias=b)
+            else:
+                h = module(h, emb, context)
 
         h = h.type(x.dtype)
         return self.out(h)
@@ -129,6 +133,7 @@ class ControlNet(nn.Module):
         self.predict_codebook_ids = n_embed is not None
 
         time_embed_dim = model_channels * 4
+        # NOTE: for time embed
         self.time_embed = nn.Sequential(
             linear(model_channels, time_embed_dim),
             nn.SiLU(),
@@ -144,6 +149,8 @@ class ControlNet(nn.Module):
         )
         self.zero_convs = nn.ModuleList([self.make_zero_conv(model_channels)])
 
+        # NOTE: for openpose conditioning
+        # assuming shape [3,512,512] -> [3,64,64]
         self.input_hint_block = TimestepEmbedSequential(
             conv_nd(dims, hint_channels, 16, 3, padding=1),
             nn.SiLU(),
@@ -161,6 +168,8 @@ class ControlNet(nn.Module):
             nn.SiLU(),
             zero_module(conv_nd(dims, 256, model_channels, 3, padding=1))
         )
+
+        # TODO: We need an encoder for the source image at different levels
 
         self._feature_size = model_channels
         input_block_chans = [model_channels]
@@ -281,6 +290,7 @@ class ControlNet(nn.Module):
     def make_zero_conv(self, channels):
         return TimestepEmbedSequential(zero_module(conv_nd(self.dims, channels, channels, 1, padding=0)))
 
+    # TODO: Need to change function signature
     def forward(self, x, hint, timesteps, context, **kwargs):
         t_emb = timestep_embedding(timesteps, self.model_channels, repeat_only=False)
         emb = self.time_embed(t_emb)
@@ -290,6 +300,10 @@ class ControlNet(nn.Module):
         outs = []
 
         h = x.type(self.dtype)
+        # NOTE: This only applies to the encoder blocks
+        # TODO: Modify AttentionBlock so that it has an attribute of the level it is in
+        # TODO: Modify this function so that if it is an AttentionBlock, we pass in the embeddings
+        # of that corresponding level
         for module, zero_conv in zip(self.input_blocks, self.zero_convs):
             if guided_hint is not None:
                 h = module(h, emb, context)
