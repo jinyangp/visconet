@@ -200,8 +200,6 @@ class ViscoNetLDM(LatentDiffusion):
                 src = torch.cat(cond['c_src'], 1) # for bias, to be used in decoder
                 biases = self.src_encoder(src)
                 biases = [b*self.bias_scale for b in biases]
-                for b in biases:
-                    print('bs:', b.shape)
                 eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=control, bias=biases, only_mid_control=self.only_mid_control)
 
             # STEP: If IP-Adapter is being used here, we concatenate them along the same dimension and chunk them for processing

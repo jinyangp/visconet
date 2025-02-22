@@ -435,23 +435,13 @@ class SpatialTransformer(nn.Module):
         if self.use_linear:
             x = self.proj_in(x)
 
-        # NOTE: OLD WAY
-        # for i, block in enumerate(self.transformer_blocks):
-        #     if bias:
-        #         x = x + bias
-        #     x = block(x, context=context[i])
-
-        print('b4 transformer', x.shape)        
         for i, block in enumerate(self.transformer_blocks):
             # print("tt", x.shape, bias)
             # x = block(x,context=context[i],bias=bias)
             if self.use_bias and bias is not None:
-                print('bias shape is of course', bias.shape)
                 bias = rearrange(bias, 'b c h w -> b (h w) c').contiguous()
                 x = torch.cat((x,bias), dim=1)
             x = block(x, context=context[i])
-
-        print('after transformer', x.shape)
         if self.use_linear:
             x = self.proj_out(x)
         x = rearrange(x, 'b (h w) c -> b c h w', h=h, w=w).contiguous()
