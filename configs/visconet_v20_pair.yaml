@@ -42,7 +42,7 @@ model:
         in_channels: 4 # as per the number of channels outputted from the VAE
         model_channels: 320 # as per the UNET architecture
         depth: 1
-        transformer_block_dim: 768 # as per the UNET architecture
+        transformer_block_dim: 256 # as per the UNET architecture
         channel_mult: [1, 2, 4] # as per the UNET architecture attention_resolution
         transformer_depth: 3
         num_head_channels: 64
@@ -178,7 +178,7 @@ model:
         context_dim: 1024
         legacy: False
         use_lora: True # STEP:
-        lora_rank: 16 # STEP:
+        lora_rank: 4 # STEP:
         use_bias: True # STEP:
 
     first_stage_config:
