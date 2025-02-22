@@ -24,7 +24,8 @@ class LocalStyleProjector(nn.Module):
                 output_height:int=512, # to match output dimensions of visconet
                 output_width:int=512,
                 use_baseline: bool=False,
-                piecewise_segment: bool=True
+                piecewise_segment: bool=True,
+                use_null_conditioning: bool=False
                 ):
         '''
         This class contains the following blocks:
@@ -47,7 +48,9 @@ class LocalStyleProjector(nn.Module):
         self.output_width = output_width
 
         self.use_baseline = use_baseline
+        # NOTE: The following two parameters are being tested out with
         self.piecewise_segment = piecewise_segment
+        self.use_null_conditioning = use_null_conditioning
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         
     def forward(self,
@@ -79,7 +82,19 @@ class LocalStyleProjector(nn.Module):
 
         # STEP: Segment style image into human and bg then style attributes to get style attributes
         human_img_tensor, _ = self.human_segmentor(style_img, output_dir=output_dir)
+        
+        # NOTE: this is temporary, to perform ablation
+        if self.use_null_conditioning:
+            null_style_attrs = torch.zeros((self.num_fashion_attrs, 3, 224, 224)).to(self.device)
+            null_style_attrs_embed = self.image_encoder(null_style_attrs) 
+            resampled_null_attrs_embed = self.resampler(null_style_attrs_embed)
+            resampled_null_attrs_embed = rearrange(resampled_null_attrs_embed, 'b n d -> (b n) d')
 
+            return {
+                "style_attr_embeds": resampled_null_attrs_embed,
+                "human_mask": human_mask
+            }
+        
         # STEP: Segment the target image for fashion attributes if piecewise_segment is set to true
         if self.piecewise_segment:
             # output_shape: [num_detected_attrs, 3, 224, 224] where 0 <= num_detected_attrs <= num_fashion_attrs

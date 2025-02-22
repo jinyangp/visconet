@@ -40,6 +40,7 @@ model:
         uncond_guidance: True
         output_height: 512 # to match output dimensions of visconet
         output_width: 512
+        use_null_conditioning: True # TODO: this is a temporary flag for our ablation study
 
         # NOTE: To segment background and foreground first
         human_segmentor_config:
