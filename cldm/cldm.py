@@ -38,10 +38,9 @@ class ControlledUnetModel(UNetModel):
                 h = torch.cat([h, hs.pop()], dim=1)
             else:
                 h = torch.cat([h, hs.pop() + control.pop()], dim=1)
-            
+             
             if bias and any(isinstance(layer, SpatialTransformer) for layer in module):
-                b = bias.pop()
-                h = module(h, emb, context, bias=b)
+                h = module(h, emb, context, bias=bias.pop())
             else:
                 h = module(h, emb, context)
 

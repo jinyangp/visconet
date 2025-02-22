@@ -141,7 +141,7 @@ class SpatialSelfAttention(nn.Module):
 
         return x+h_
 
-
+# STEP:
 class CrossAttention(nn.Module):
     def __init__(self, query_dim, context_dim=None, heads=8, dim_head=64, dropout=0.):
         super().__init__()
@@ -160,13 +160,17 @@ class CrossAttention(nn.Module):
             nn.Dropout(dropout)
         )
 
-    def forward(self, x, context=None, mask=None):
+    def forward(self, x, context=None, mask=None, bias=None):
         h = self.heads
 
+        # STEP: we do not create another to_q matrix for bias to reduce trainable parameters
         q = self.to_q(x)
         context = default(context, x)
         k = self.to_k(context)
         v = self.to_v(context)
+
+        if bias is not None:
+            q = q + bias
 
         q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> (b h) n d', h=h), (q, k, v))
 
@@ -242,14 +246,89 @@ class MemoryEfficientCrossAttention(nn.Module):
         )
         return self.to_out(out)
 
+# STEP:
+class LORALayer(nn.Module):
+    def __init__(self, in_dim, out_dim, rank):
+        super().__init__()
+        self.A = nn.Linear(in_dim, rank, bias=False)  # Low-rank decomposition
+        self.B = nn.Linear(rank, out_dim, bias=False)  # Low-rank reconstruction
 
+        # NOTE: For optimiser to recognise layers
+        self.A.name = 'lora_A'
+        self.B.name = 'lora_B'
+
+    def forward(self, x):
+        return self.B(self.A(x))  # LoRA update
+
+class CrossAttentionLoRA(nn.Module):
+    def __init__(self, query_dim, context_dim=None, heads=8, dim_head=64, dropout=0., lora_rank=None):
+        super().__init__()
+        inner_dim = dim_head * heads
+        context_dim = default(context_dim, query_dim)
+
+        self.scale = dim_head ** -0.5
+        self.heads = heads
+
+        self.to_q = nn.Linear(query_dim, inner_dim, bias=False)
+        self.to_k = nn.Linear(context_dim, inner_dim, bias=False)
+        self.to_v = nn.Linear(context_dim, inner_dim, bias=False)
+
+        # STEP: add lora layers
+        self.lora_q = LORALayer(query_dim, inner_dim, lora_rank)
+        self.lora_v = LORALayer(context_dim, inner_dim, lora_rank)
+
+        self.to_out = nn.Sequential(
+            nn.Linear(inner_dim, query_dim),
+            nn.Dropout(dropout)
+        )
+
+    def forward(self, x, context=None, mask=None, bias=None):
+        h = self.heads
+
+        # STEP: 
+        q = self.to_q(x) + self.lora_q(x)
+        context = default(context, x)
+        k = self.to_k(context)
+        v = self.to_v(context) + self.lora_v(context)
+
+        if bias is not None:
+            q = q + bias
+
+        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> (b h) n d', h=h), (q, k, v))
+
+        # force cast to fp32 to avoid overflowing
+        if _ATTN_PRECISION =="fp32":
+            with torch.autocast(enabled=False, device_type = 'cuda'):
+                q, k = q.float(), k.float()
+                sim = einsum('b i d, b j d -> b i j', q, k) * self.scale
+        else:
+            sim = einsum('b i d, b j d -> b i j', q, k) * self.scale
+        
+        del q, k
+    
+        if exists(mask):
+            mask = rearrange(mask, 'b ... -> b (...)')
+            max_neg_value = -torch.finfo(sim.dtype).max
+            mask = repeat(mask, 'b j -> (b h) () j', h=h)
+            sim.masked_fill_(~mask, max_neg_value)
+
+        # attention, what we cannot get enough of
+        sim = sim.softmax(dim=-1)
+
+        out = einsum('b i j, b j d -> b i d', sim, v)
+        out = rearrange(out, '(b h) n d -> b n (h d)', h=h)
+        return self.to_out(out)
+
+# TODO: Add argument to use LORA
 class BasicTransformerBlock(nn.Module):
+    # STEP:
     ATTENTION_MODES = {
         "softmax": CrossAttention,  # vanilla attention
+        "softmax-with-lora": CrossAttentionLoRA,
         "softmax-xformers": MemoryEfficientCrossAttention
     }
     def __init__(self, dim, n_heads, d_head, dropout=0., context_dim=None, gated_ff=True, checkpoint=True,
-                 disable_self_attn=False):
+                 disable_self_attn=False, use_lora=False, lora_rank=None, use_bias=False):
         super().__init__()
         attn_mode = "softmax-xformers" if XFORMERS_IS_AVAILBLE else "softmax"
         assert attn_mode in self.ATTENTION_MODES
@@ -258,23 +337,46 @@ class BasicTransformerBlock(nn.Module):
         self.attn1 = attn_cls(query_dim=dim, heads=n_heads, dim_head=d_head, dropout=dropout,
                               context_dim=context_dim if self.disable_self_attn else None)  # is a self-attention if not self.disable_self_attn
         self.ff = FeedForward(dim, dropout=dropout, glu=gated_ff)
-        self.attn2 = attn_cls(query_dim=dim, context_dim=context_dim,
+        # STEP:
+        cross_attn_mode = attn_mode
+        if use_lora:
+            assert lora_rank is not None, "LoRA rank must be provided if using LoRA."
+            self.use_lora = use_lora
+            self.lora_rank = lora_rank
+            # NOTE: Currently only have implementation of softmax-with-lora
+            cross_attn_mode = "softmax-with-lora"
+            cross_attn_cls = self.ATTENTION_MODES[cross_attn_mode]
+            self.attn2 = cross_attn_cls(query_dim=dim, context_dim=context_dim,
+                                heads=n_heads, dim_head=d_head, dropout=dropout, lora_rank=lora_rank)  # is self-attn if context is none
+        else:
+            self.attn2 = attn_cls(query_dim=dim, context_dim=context_dim,
                               heads=n_heads, dim_head=d_head, dropout=dropout)  # is self-attn if context is none
         self.norm1 = nn.LayerNorm(dim)
         self.norm2 = nn.LayerNorm(dim)
         self.norm3 = nn.LayerNorm(dim)
         self.checkpoint = checkpoint
 
+        self.use_bias = use_bias
+
+    # STEP:
     def forward(self, x, context=None):
         return checkpoint(self._forward, (x, context), self.parameters(), self.checkpoint)
 
+    # STEP:
     def _forward(self, x, context=None):
-        x = self.attn1(self.norm1(x), context=context if self.disable_self_attn else None) + x
-        x = self.attn2(self.norm2(x), context=context) + x
-        x = self.ff(self.norm3(x)) + x
+        if self.use_bias:
+            x, bias = torch.chunk(x, 2, dim=1)
+            x = self.attn1(self.norm1(x), context=context if self.disable_self_attn else None, bias=bias) + x
+            x = self.attn2(self.norm2(x), context=context, bias=bias) + x
+            x = self.ff(self.norm3(x)) + x
+        else:
+            x = self.attn1(self.norm1(x), context=context if self.disable_self_attn else None) + x
+            x = self.attn2(self.norm2(x), context=context) + x
+            x = self.ff(self.norm3(x)) + x
+        
         return x
 
-
+# STEP:
 class SpatialTransformer(nn.Module):
     """
     Transformer block for image-like data.
@@ -287,12 +389,13 @@ class SpatialTransformer(nn.Module):
     def __init__(self, in_channels, n_heads, d_head,
                  depth=1, dropout=0., context_dim=None,
                  disable_self_attn=False, use_linear=False,
-                 use_checkpoint=True):
+                 use_checkpoint=True, use_bias=False, use_lora=False, lora_rank=None):
         super().__init__()
         if exists(context_dim) and not isinstance(context_dim, list):
             context_dim = [context_dim]
         self.in_channels = in_channels
         inner_dim = n_heads * d_head
+        
         self.norm = Normalize(in_channels)
         if not use_linear:
             self.proj_in = nn.Conv2d(in_channels,
@@ -302,10 +405,10 @@ class SpatialTransformer(nn.Module):
                                      padding=0)
         else:
             self.proj_in = nn.Linear(in_channels, inner_dim)
-
         self.transformer_blocks = nn.ModuleList(
             [BasicTransformerBlock(inner_dim, n_heads, d_head, dropout=dropout, context_dim=context_dim[d],
-                                   disable_self_attn=disable_self_attn, checkpoint=use_checkpoint)
+                                   disable_self_attn=disable_self_attn, checkpoint=use_checkpoint,use_lora=use_lora,
+                                   lora_rank=lora_rank, use_bias=use_bias)
                 for d in range(depth)]
         )
         if not use_linear:
@@ -317,6 +420,7 @@ class SpatialTransformer(nn.Module):
         else:
             self.proj_out = zero_module(nn.Linear(in_channels, inner_dim))
         self.use_linear = use_linear
+        self.use_bias = use_bias
 
     def forward(self, x, context=None, bias=None):
         # note: if no context is given, cross-attention defaults to self-attention
@@ -330,10 +434,24 @@ class SpatialTransformer(nn.Module):
         x = rearrange(x, 'b c h w -> b (h w) c').contiguous()
         if self.use_linear:
             x = self.proj_in(x)
+
+        # NOTE: OLD WAY
+        # for i, block in enumerate(self.transformer_blocks):
+        #     if bias:
+        #         x = x + bias
+        #     x = block(x, context=context[i])
+
+        print('b4 transformer', x.shape)        
         for i, block in enumerate(self.transformer_blocks):
-            if bias:
-                x = x + bias
+            # print("tt", x.shape, bias)
+            # x = block(x,context=context[i],bias=bias)
+            if self.use_bias and bias is not None:
+                print('bias shape is of course', bias.shape)
+                bias = rearrange(bias, 'b c h w -> b (h w) c').contiguous()
+                x = torch.cat((x,bias), dim=1)
             x = block(x, context=context[i])
+
+        print('after transformer', x.shape)
         if self.use_linear:
             x = self.proj_out(x)
         x = rearrange(x, 'b (h w) c -> b c h w', h=h, w=w).contiguous()

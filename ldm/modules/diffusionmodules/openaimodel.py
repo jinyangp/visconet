@@ -81,7 +81,7 @@ class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
             if isinstance(layer, TimestepBlock):
                 x = layer(x, emb)
             elif isinstance(layer, SpatialTransformer):
-                x = layer(x, context, bias)
+                x = layer(x, context=context, bias=bias)
             else:
                 x = layer(x)
         return x
@@ -439,6 +439,7 @@ class UNetModel(nn.Module):
                                     increased efficiency.
     """
 
+    # STEP:
     def __init__(
         self,
         image_size,
@@ -469,6 +470,9 @@ class UNetModel(nn.Module):
         num_attention_blocks=None,
         disable_middle_self_attn=False,
         use_linear_in_transformer=False,
+        use_bias=False,
+        use_lora=False,
+        lora_rank=None
     ):
         super().__init__()
         if use_spatial_transformer:
@@ -523,6 +527,10 @@ class UNetModel(nn.Module):
         self.num_heads_upsample = num_heads_upsample
         self.predict_codebook_ids = n_embed is not None
 
+        # STEP: 
+        self.use_lora = use_lora
+        self.lora_rank = lora_rank
+        
         time_embed_dim = model_channels * 4
         self.time_embed = nn.Sequential(
             linear(model_channels, time_embed_dim),
@@ -700,7 +708,8 @@ class UNetModel(nn.Module):
                             ) if not use_spatial_transformer else SpatialTransformer(
                                 ch, num_heads, dim_head, depth=transformer_depth, context_dim=context_dim,
                                 disable_self_attn=disabled_sa, use_linear=use_linear_in_transformer,
-                                use_checkpoint=use_checkpoint
+                                use_checkpoint=use_checkpoint, use_bias=use_bias, use_lora=self.use_lora,
+                                lora_rank=self.lora_rank
                             )
                         )
                 if level and i == self.num_res_blocks[level]:
