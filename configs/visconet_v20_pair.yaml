@@ -22,6 +22,7 @@ model:
     p_cg: 0.95 # this means the probability of using guided training
     use_bias: True
     bias_mask_only: True
+    use_lora: True
 
     scheduler_config:
       target: torch.optim.lr_scheduler.ReduceLROnPlateau
@@ -178,6 +179,8 @@ model:
         transformer_depth: 1
         context_dim: 1024
         legacy: False
+        use_lora: True
+        lora_rank: 4
 
     first_stage_config:
       target: ldm.models.autoencoder.AutoencoderKL
@@ -221,7 +224,8 @@ dataset:
       style_dir: seg_imgs
       map_file: "./data/deepfashion/deepfashion_multimodal_map_all.csv"
       data_files:
-        - "./data/deepfashion/pairs-train-11000.csv" # to and from are the same
+        # - "./data/deepfashion/pairs-train-11000.csv" # to and from are the same # complete dataset
+        - "./data/deepfashion/pairs-train-all_multimodal_one_sample.csv" # one datapoint, for testing # TODO:
 
   val:
     target: visconet.deepfashion.DeepFashionDataset

@@ -537,6 +537,7 @@ class LatentDiffusion(DDPM):
                  scale_factor=1.0,
                  scale_by_std=False,
                  force_null_conditioning=False,
+                 lora_apply_mask_only=True,
                  *args, **kwargs):
         self.force_null_conditioning = force_null_conditioning
         self.num_timesteps_cond = default(num_timesteps_cond, 1)
@@ -582,6 +583,9 @@ class LatentDiffusion(DDPM):
             print(" +++++++++++ WARNING: RESETTING NUM_EMA UPDATES TO ZERO +++++++++++ ")
             assert self.use_ema
             self.model_ema.reset_num_updates()
+
+        # NOTE: to finetune across entire image
+        self.lora_apply_mask_only = lora_apply_mask_only
 
     def make_cond_schedule(self, ):
         self.cond_ids = torch.full(size=(self.num_timesteps,), fill_value=self.num_timesteps - 1, dtype=torch.long)
@@ -904,7 +908,7 @@ class LatentDiffusion(DDPM):
             raise NotImplementedError()
 
         loss_simple = self.get_loss(model_output, target, mean=False)
-        if 'c_concat_mask' in cond:
+        if self.lora_apply_mask_only and 'c_concat_mask' in cond:
             cond_mask = torch.cat(cond['c_concat_mask'], 1) # remove list
             resized_mask = T.Resize(list(loss_simple.shape[-2:]), T.InterpolationMode.NEAREST)(cond_mask)
             resized_mask = resized_mask.unsqueeze(1)

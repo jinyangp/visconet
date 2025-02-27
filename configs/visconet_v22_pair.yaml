@@ -21,6 +21,7 @@ model:
     only_mid_control: False
     p_cg: 0.95 # this means the probability of using guided training
     use_lora: True
+    lora_apply_mask_only: False
 
     scheduler_config:
       target: torch.optim.lr_scheduler.ReduceLROnPlateau

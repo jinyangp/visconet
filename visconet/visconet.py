@@ -17,8 +17,8 @@ class ViscoNetLDM(LatentDiffusion):
 
     def __init__(self, control_stage_config, control_key, only_mid_control, control_cond_config,
                  control_crossattn_key, src_encoder_config=None, mask_key=None, enable_mask=True, p_cg=None, use_bias=False,
-                 bias_mask_only=False, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+                 bias_mask_only=False, use_lora=False, lora_apply_mask_only=False ,*args, **kwargs):
+        super().__init__(*args, **kwargs, lora_apply_mask_only=lora_apply_mask_only)
         self.control_model = instantiate_from_config(control_stage_config)
         self.control_key = control_key # image pose prompt - for openpose
         self.control_crossattn_key = control_crossattn_key # image pose prompt - for fashion attribute styles
@@ -40,6 +40,8 @@ class ViscoNetLDM(LatentDiffusion):
         self.bias_mask_only = bias_mask_only
         if self.use_bias:
             self.src_encoder = instantiate_from_config(src_encoder_config)
+
+        self.use_lora = use_lora
 
     '''
     # NOTE: get_input() and apply_model() are used behind the scenes in the training_step which is a necessary step needed to be implemented to use Pytorch Lightning
@@ -197,6 +199,8 @@ class ViscoNetLDM(LatentDiffusion):
                 src = torch.cat(cond['c_src'], 1) # for bias, to be used in decoder
                 biases = self.src_encoder(src)
                 biases = [b*self.bias_scale for b in biases]
+                for b in biases:
+                    print(b.shape)
                 eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=control, bias=biases, only_mid_control=self.only_mid_control)
 
             # STEP: If IP-Adapter is being used here, we concatenate them along the same dimension and chunk them for processing
@@ -428,6 +432,9 @@ class ViscoNetLDM(LatentDiffusion):
         params += list(self.control_cond_model.parameters())
         if self.use_bias:
             params += list(self.src_encoder.parameters())
+        if self.use_lora:
+            lora_params = [p for n, p in self.model.named_parameters() if 'lora' in n]
+            params += lora_params
         if not self.sd_locked:
             params += list(self.model.diffusion_model.output_blocks.parameters())
             params += list(self.model.diffusion_model.out.parameters())

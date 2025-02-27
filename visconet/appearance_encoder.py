@@ -11,8 +11,7 @@ class AppearanceEncoder(nn.Module):
                  in_channels,
                  model_channels,
                  depth=1,
-                 embed_dims=256, # the context dim the transformer blocks should work on
-                 context_dim=1024, # the context dim in the original UNET
+                 transformer_block_dim=1024, # the context dim in the original UNET
                  channel_mult=[1,2,4],
                  transformer_depth=1,
                  num_heads=-1,
@@ -41,19 +40,18 @@ class AppearanceEncoder(nn.Module):
         self.model_channels = model_channels
         self.depth = depth
         self.num_res_blocks = num_res_blocks
-        self.context_dim = context_dim
+        self.transformer_block_dim = transformer_block_dim
         if num_heads == -1:
            assert num_head_channels != -1, "Either num_heads or num_heads_channels must be provided."
         if num_head_channels != -1:
-           assert embed_dims % num_head_channels == 0, "embed_dims must be perfectly divisible by num_head_channels."
+           assert transformer_block_dim % num_head_channels == 0, "embed_dims must be perfectly divisible by num_head_channels."
         
         self.num_heads_channels = num_head_channels
         self.transformer_depth = transformer_depth
         self.channel_mult = channel_mult
         self.get_featuremaps_method = get_featuremaps_method
 
-        conv_modules = [nn.Conv2d(in_channels, model_channels, kernel_size=3, stride=1, padding=1),
-                        nn.Conv2d(model_channels, model_channels, kernel_size=3, stride=2, padding=1)]
+        conv_modules = [nn.Conv2d(in_channels, model_channels, kernel_size=3, stride=1, padding=1)]
         zero_convin = []
         zero_convout = []
         transformer_blocks = []
@@ -61,15 +59,15 @@ class AppearanceEncoder(nn.Module):
         ch = model_channels
         # make modules to get feature maps
         if self.get_featuremaps_method == "conv":
-           for mult_factor in channel_mult[1:]:
+           for mult_factor in channel_mult:
                conv_modules.append(nn.Conv2d(ch, model_channels*mult_factor, kernel_size=3, stride=2, padding=1))
                ch = model_channels*mult_factor
         elif self.get_featuremaps_method == "attn":
-            conv_modules.append(SwinTransformer(img_size=32,
+            conv_modules.append(SwinTransformer(img_size=64,
                                                 patch_size=2,
-                                                in_chans=320,
+                                                in_chans=model_channels,
                                                 embed_dim=640, # embed dim for each image patch
-                                                depths=(2,1), # (num layers, num attn block per layer)
+                                                depths=(2,2), # (num layers, num attn block per layer)
                                                 num_heads=(8,16),
                                                 window_size=8, # window_size for self attn
                                                 mlp_ratio=4.0, # ratio of hidden dim to embed_dim
@@ -81,10 +79,10 @@ class AppearanceEncoder(nn.Module):
         # make modules for zero conv in and conv out and transformer blocks
         ch = model_channels
         for mult_factor in channel_mult:
-           zero_convin.extend([nn.Conv2d(ch, embed_dims*mult_factor, kernel_size=1, stride=1, padding=0) for _ in range(self.num_res_blocks)])
-           zero_convout.extend([nn.Conv2d(embed_dims*mult_factor, self.context_dim, kernel_size=1, stride=1, padding=0) for _ in range(self.num_res_blocks)])          
-           transformer_layers = nn.Sequential(*[BasicTransformerBlock(dim=embed_dims*mult_factor,
-                                                            num_attention_heads=(embed_dims*mult_factor//self.num_heads_channels),
+           zero_convin.extend([nn.Conv2d(model_channels*mult_factor, self.transformer_block_dim, kernel_size=1, stride=1, padding=0) for _ in range(self.num_res_blocks)])
+           zero_convout.extend([nn.Conv2d(self.transformer_block_dim, model_channels*mult_factor, kernel_size=1, stride=1, padding=0) for _ in range(self.num_res_blocks)])          
+           transformer_layers = nn.Sequential(*[BasicTransformerBlock(dim=self.transformer_block_dim,
+                                                            num_attention_heads=(self.transformer_block_dim//self.num_heads_channels),
                                                             attention_head_dim=self.num_heads_channels,
                                                             double_self_attention=True)
                                                             for _ in range(self.transformer_depth)])
@@ -103,19 +101,19 @@ class AppearanceEncoder(nn.Module):
 
     def forward(self, x):
 
-        # Get a list of all the outputs from the conv layers first
-        feature_maps = []
-        for layer in self.convs:
+         # Get a list of all the outputs from the conv layers first
+         feature_maps = []
+         for layer in self.convs:
             if self.get_featuremaps_method == "attn" and not isinstance(layer, nn.modules.conv.Conv2d):
                _, xs = layer.forward_intermediates(x) # xs is a list of tensors
-               for x in xs:
-                  feature_maps.extend([x for _ in range(self.num_res_blocks)])                  
+               for intermediate_x in xs:
+                  feature_maps.extend([intermediate_x for _ in range(self.num_res_blocks)])                  
             else:
                x = layer(x)
                feature_maps.extend([x for _ in range(self.num_res_blocks)])
 
-        outs = []
-        for i in range(len(self.channel_mult)*self.num_res_blocks):
+         outs = []
+         for i in range(len(self.channel_mult)*self.num_res_blocks):
             
             conv_in = self.zero_convin[i]
             transformer_layers = self.transformer_blocks[i]
@@ -125,17 +123,17 @@ class AppearanceEncoder(nn.Module):
             # shape: [B,C,H,W] -> [B,C,H,W]
             features = conv_in(features)
             for layer in transformer_layers:
-                # features input: [B,C,H,W]
-                # input shape required by transformer block: [B, H*W, C]
-                # output shape required by transformer block: [B, H*W, C]
-                b,c,h,w = features.shape
-                # Rearrange features from [b, c, h, w] to [b, h*w, c]
-                features = features.permute(0, 2, 3, 1).contiguous().view(b, h * w, c)
-                # Pass through the layer
-                features = layer(features)
-                # Rearrange features back from [b, h*w, c] to [b, c, h, w]
-                features = features.view(b, h, w, c).permute(0, 3, 1, 2)
+                  # features input: [B,C,H,W]
+                  # input shape required by transformer block: [B, H*W, C]
+                  # output shape required by transformer block: [B, H*W, C]
+                  b,c,h,w = features.shape
+                  # Rearrange features from [b, c, h, w] to [b, h*w, c]
+                  features = features.permute(0, 2, 3, 1).contiguous().view(b, h * w, c)
+                  # Pass through the layer
+                  features = layer(features)
+                  # Rearrange features back from [b, h*w, c] to [b, c, h, w]
+                  features = features.view(b, h, w, c).permute(0, 3, 1, 2)
             features = conv_out(features)
             outs.append(features)
 
-        return outs
+         return outs
