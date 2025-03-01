@@ -199,8 +199,6 @@ class ViscoNetLDM(LatentDiffusion):
                 src = torch.cat(cond['c_src'], 1) # for bias, to be used in decoder
                 biases = self.src_encoder(src)
                 biases = [b*self.bias_scale for b in biases]
-                for b in biases:
-                    print(b.shape)
                 eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=control, bias=biases, only_mid_control=self.only_mid_control)
 
             # STEP: If IP-Adapter is being used here, we concatenate them along the same dimension and chunk them for processing
@@ -236,6 +234,9 @@ class ViscoNetLDM(LatentDiffusion):
         # c_text: the text prompt
         # c_concat_mask: the human mask to apply
         # c_crossattn: the style attributes
+        if self.use_bias:
+            c_src = c['c_src'][0][:N]
+
         c_cat, c_text, mask = c["c_concat"][0][:N], c["c_text"][0][:N], c["c_concat_mask"][0][:N]
         c = c["c_crossattn"][0][:N]
 
@@ -274,6 +275,10 @@ class ViscoNetLDM(LatentDiffusion):
                 "c_crossattn": [torch.zeros_like(c)],
                 "c_text":[self.get_learned_conditioning([n_prompt] * N)],
                 'c_concat_mask': [torch.zeros_like(mask)] }
+        
+        if self.use_bias:
+            cond['c_src'] = [c_src]
+            un_cond['c_src'] = [torch.zeros_like(c_src)]
         
         # NOTE: if we just want to compare the sampled output with the source image
         if sample:
@@ -432,6 +437,7 @@ class ViscoNetLDM(LatentDiffusion):
         params += list(self.control_cond_model.parameters())
         if self.use_bias:
             params += list(self.src_encoder.parameters())
+            params += [p for n, p in self.model.named_parameters() if 'ip' in n]
         if self.use_lora:
             lora_params = [p for n, p in self.model.named_parameters() if 'lora' in n]
             params += lora_params

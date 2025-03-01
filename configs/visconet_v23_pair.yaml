@@ -22,7 +22,6 @@ model:
     p_cg: 0.95 # this means the probability of using guided training
     use_bias: True
     bias_mask_only: True
-    use_lora: True
 
     scheduler_config:
       target: torch.optim.lr_scheduler.ReduceLROnPlateau
@@ -42,9 +41,10 @@ model:
         in_channels: 4 # as per the number of channels outputted from the VAE
         model_channels: 320 # as per the UNET architecture
         depth: 1
-        transformer_block_dim: 256 # as per the UNET architecture
+        transformer_block_dim: 256
+        context_dim: 1024 # as per the UNET architecture
         channel_mult: [1, 2, 4] # as per the UNET architecture attention_resolution
-        transformer_depth: 3
+        transformer_depth: 1
         num_head_channels: 64
         num_res_blocks: 3 # as per the UNET architecture
         get_featuremaps_method: "attn"
@@ -164,7 +164,7 @@ model:
       target: cldm.cldm.ControlledUnetModel
       params:
         use_checkpoint: True
-        image_size: 32 # unusedq
+        image_size: 32 # unused
         in_channels: 4
         out_channels: 4
         model_channels: 320
@@ -221,7 +221,9 @@ dataset:
       style_dir: seg_imgs
       map_file: "./data/deepfashion/deepfashion_multimodal_map_all.csv"
       data_files:
+        # - "./data/deepfashion/pairs-train-all_multimodal_sample.csv" # to and from are the same # NOTE: this is the original sampled 2,000 samples dataset
         - "./data/deepfashion/pairs-train-11000.csv" # to and from are the same
+        # - "./data/deepfashion/pairs-train-all_multimodal_one_sample.csv" # NOTE: 4 samples, for testing only
 
   val:
     target: visconet.deepfashion.DeepFashionDataset
@@ -242,5 +244,5 @@ dataset:
       map_file: "./data/deepfashion/deepfashion_multimodal_map_all.csv"
       data_files:
         # - "./data/deepfashion/pairs-test-all_solo_multimodal_sample.csv" # to and from are the same
-        - "./data/deepfashion/pairs-test-all_pairs_multimodal_sample.csv" # to and from are different # 100 test samples
-        - "./data/deepfashion/benchmark-test-pairs-metrics.csv" # benchmark for metrics
+        - "./data/deepfashion/pairs-test-all_pairs_multimodal_sample.csv" # to and from are different # 100 samples test
+        # - "./data/deepfashion/benchmark-test-pairs-metrics.csv" # to and from are different # metrics generation

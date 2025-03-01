@@ -11,7 +11,9 @@ class AppearanceEncoder(nn.Module):
                  in_channels,
                  model_channels,
                  depth=1,
-                 transformer_block_dim=1024, # the context dim in the original UNET
+                 transformer_block_dim=1024, # the context dim to be used in appearance encoder transformer block
+                 context_dim=1024,
+                 proj_out_dim = 77,
                  channel_mult=[1,2,4],
                  transformer_depth=1,
                  num_heads=-1,
@@ -30,10 +32,10 @@ class AppearanceEncoder(nn.Module):
         For each feature map, run them through zero conv and transformer blocks
 
         depth 1, block 1-3, input shape of [1,320,64,64]
-        depth 2, block 1-3, input shape of [1,320,32,32]
-        depth 3, block 1-3, input shape of [1,640,16,16]
-        depth 4, block 1-3, input shape of [1,1280,8,8]
+        depth 2, block 1-3, input shape of [1,640,32,32]
+        depth 3, block 1-3, input shape of [1,1280,16,16]
         '''
+
         super().__init__()
         
         self.in_channels = in_channels
@@ -41,6 +43,7 @@ class AppearanceEncoder(nn.Module):
         self.depth = depth
         self.num_res_blocks = num_res_blocks
         self.transformer_block_dim = transformer_block_dim
+        self.context_dim = context_dim
         if num_heads == -1:
            assert num_head_channels != -1, "Either num_heads or num_heads_channels must be provided."
         if num_head_channels != -1:
@@ -51,9 +54,13 @@ class AppearanceEncoder(nn.Module):
         self.channel_mult = channel_mult
         self.get_featuremaps_method = get_featuremaps_method
 
+        self.img_dims = [64,32,16]
+        self.proj_out_dim = proj_out_dim
+
         conv_modules = [nn.Conv2d(in_channels, model_channels, kernel_size=3, stride=1, padding=1)]
         zero_convin = []
         zero_convout = []
+        zero_projout = []
         transformer_blocks = []
 
         ch = model_channels
@@ -78,9 +85,10 @@ class AppearanceEncoder(nn.Module):
 
         # make modules for zero conv in and conv out and transformer blocks
         ch = model_channels
-        for mult_factor in channel_mult:
+        for i, mult_factor in enumerate(channel_mult):
            zero_convin.extend([nn.Conv2d(model_channels*mult_factor, self.transformer_block_dim, kernel_size=1, stride=1, padding=0) for _ in range(self.num_res_blocks)])
-           zero_convout.extend([nn.Conv2d(self.transformer_block_dim, model_channels*mult_factor, kernel_size=1, stride=1, padding=0) for _ in range(self.num_res_blocks)])          
+           zero_convout.extend([nn.Conv2d(self.transformer_block_dim, self.context_dim, kernel_size=1, stride=1, padding=0) for _ in range(self.num_res_blocks)])    
+           zero_projout.extend([nn.Linear(self.img_dims[i]**2, self.proj_out_dim) for _ in range(self.num_res_blocks)])      
            transformer_layers = nn.Sequential(*[BasicTransformerBlock(dim=self.transformer_block_dim,
                                                             num_attention_heads=(self.transformer_block_dim//self.num_heads_channels),
                                                             attention_head_dim=self.num_heads_channels,
@@ -92,11 +100,14 @@ class AppearanceEncoder(nn.Module):
         self.convs = nn.Sequential(*conv_modules)
         self.zero_convin = nn.ModuleList(zero_convin)
         self.zero_convout = nn.ModuleList(zero_convout)
+        self.zero_projout = nn.ModuleList(zero_projout)
         self.transformer_blocks = nn.ModuleList(transformer_blocks)
 
         for n in self.zero_convin.parameters():
            nn.init.zeros_(n)
         for n in self.zero_convout.parameters():
+           nn.init.zeros_(n)
+        for n in self.zero_projout.parameters():
            nn.init.zeros_(n)
 
     def forward(self, x):
@@ -118,8 +129,9 @@ class AppearanceEncoder(nn.Module):
             conv_in = self.zero_convin[i]
             transformer_layers = self.transformer_blocks[i]
             conv_out = self.zero_convout[i]
+            proj_out = self.zero_projout[i]
             features = feature_maps[i]
-
+            
             # shape: [B,C,H,W] -> [B,C,H,W]
             features = conv_in(features)
             for layer in transformer_layers:
@@ -134,6 +146,9 @@ class AppearanceEncoder(nn.Module):
                   # Rearrange features back from [b, h*w, c] to [b, c, h, w]
                   features = features.view(b, h, w, c).permute(0, 3, 1, 2)
             features = conv_out(features)
+            features = rearrange(features, 'b c h w -> b c (h w)')
+            features = proj_out(features)
+            features = rearrange(features, 'b d n -> b n d')
             outs.append(features)
 
          return outs

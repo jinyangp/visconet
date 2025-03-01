@@ -469,6 +469,7 @@ class UNetModel(nn.Module):
         num_attention_blocks=None,
         disable_middle_self_attn=False,
         use_linear_in_transformer=False,
+        use_bias=False,
         use_lora=False,
         lora_rank=None,
         lora_q_scale=1.0,
@@ -534,12 +535,13 @@ class UNetModel(nn.Module):
             linear(time_embed_dim, time_embed_dim),
         )
 
+        self.use_bias = use_bias
+        
         # STEP: For LoRA
         self.use_lora = use_lora
-        if self.use_lora:
-            self.lora_rank = lora_rank
-            self.lora_q_scale = lora_q_scale
-            self.lora_v_scale = lora_v_scale
+        self.lora_rank = lora_rank
+        self.lora_q_scale = lora_q_scale
+        self.lora_v_scale = lora_v_scale
 
         if self.num_classes is not None:
             if isinstance(self.num_classes, int):
@@ -711,7 +713,7 @@ class UNetModel(nn.Module):
                             ) if not use_spatial_transformer else SpatialTransformer(
                                 ch, num_heads, dim_head, depth=transformer_depth, context_dim=context_dim,
                                 disable_self_attn=disabled_sa, use_linear=use_linear_in_transformer,
-                                use_checkpoint=use_checkpoint, use_lora=self.use_lora, lora_rank=self.lora_rank,
+                                use_checkpoint=use_checkpoint, use_bias=self.use_bias, use_lora=self.use_lora, lora_rank=self.lora_rank,
                                 lora_q_scale=self.lora_q_scale, lora_v_scale=self.lora_v_scale
                             )
                         )
