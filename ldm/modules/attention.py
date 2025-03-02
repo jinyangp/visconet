@@ -186,43 +186,64 @@ class CrossAttention(nn.Module):
     def forward(self, x, context=None, mask=None, ip_context=None):
         h = self.heads
 
+        # Query computation
         q = self.to_q(x)
+        # Default to self-attention if no context is provided
         context = default(context, x)
-        k = self.to_k(context)
-        v = self.to_v(context)
 
+        # Compute keys and values for text context
+        k_text = self.to_k(context)
+        v_text = self.to_v(context)
 
-        if self.use_bias and ip_context is not None:
-            k = k + self.ip_to_k_b(self.ip_to_k_a(ip_context))
-            v = v + self.ip_to_v_b(self.ip_to_v_a(ip_context))
-
-        if self.use_lora:
-            q = q + self.lora_q_scale*self.lora_q(x)
-            v = v + self.lora_v_scale*self.lora_v(context)
-
-        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> (b h) n d', h=h), (q, k, v))
-
-        # force cast to fp32 to avoid overflowing
-        if _ATTN_PRECISION =="fp32":
-            with torch.autocast(enabled=False, device_type = 'cuda'):
-                q, k = q.float(), k.float()
-                sim = einsum('b i d, b j d -> b i j', q, k) * self.scale
+        # Compute keys and values for IP context separately if provided
+        if ip_context is not None:
+            k_ip = self.ip_to_k_b(self.ip_to_k_a(ip_context))
+            v_ip = self.ip_to_v_b(self.ip_to_v_a(ip_context))
         else:
-            sim = einsum('b i d, b j d -> b i j', q, k) * self.scale
-        
-        del q, k
-    
-        if exists(mask):
-            mask = rearrange(mask, 'b ... -> b (...)')
-            max_neg_value = -torch.finfo(sim.dtype).max
-            mask = repeat(mask, 'b j -> (b h) () j', h=h)
-            sim.masked_fill_(~mask, max_neg_value)
+            k_ip, v_ip = None, None
 
-        # attention, what we cannot get enough of
-        sim = sim.softmax(dim=-1)
+        # Apply LoRA scaling if enabled
+        if self.use_lora:
+            q = q + self.lora_q_scale * self.lora_q(x)
+            v_text = v_text + self.lora_v_scale * self.lora_v(context)
 
-        out = einsum('b i j, b j d -> b i d', sim, v)
+        # Reshape queries, keys, and values for multi-head attention
+        q = rearrange(q, 'b n (h d) -> (b h) n d', h=h)
+        k_text = rearrange(k_text, 'b n (h d) -> (b h) n d', h=h)
+        v_text = rearrange(v_text, 'b n (h d) -> (b h) n d', h=h)
+
+        if k_ip is not None:
+            k_ip = rearrange(k_ip, 'b n (h d) -> (b h) n d', h=h)
+            v_ip = rearrange(v_ip, 'b n (h d) -> (b h) n d', h=h)
+
+        # Compute scaled dot-product attention separately
+        def compute_attention(q, k, v):
+            if _ATTN_PRECISION == "fp32":
+                with torch.autocast(enabled=False, device_type='cuda'):
+                    q, k = q.float(), k.float()
+                    sim = einsum('b i d, b j d -> b i j', q, k) * self.scale
+            else:
+                sim = einsum('b i d, b j d -> b i j', q, k) * self.scale
+
+            if exists(mask):
+                mask_reshaped = rearrange(mask, 'b ... -> b (...)')
+                max_neg_value = -torch.finfo(sim.dtype).max
+                mask_reshaped = repeat(mask_reshaped, 'b j -> (b h) () j', h=h)
+                sim.masked_fill_(~mask_reshaped, max_neg_value)
+
+            sim = sim.softmax(dim=-1)
+            return einsum('b i j, b j d -> b i d', sim, v)
+
+        # Compute separate attention outputs
+        out_text = compute_attention(q, k_text, v_text)
+        out_ip = compute_attention(q, k_ip, v_ip) if k_ip is not None else 0
+
+        # Merge outputs (simple summation, but can be weighted if needed)
+        out = out_text + out_ip
+
+        # Reshape output
         out = rearrange(out, '(b h) n d -> b n (h d)', h=h)
+
         return self.to_out(out)
 
 
