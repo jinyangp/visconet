@@ -10,7 +10,6 @@ class AppearanceEncoder(nn.Module):
     def __init__(self,
                  in_channels,
                  model_channels,
-                 depth=1,
                  transformer_block_dim=1024, # the context dim to be used in appearance encoder transformer block
                  context_dim=1024,
                  proj_out_dim = 77,
@@ -40,7 +39,6 @@ class AppearanceEncoder(nn.Module):
         
         self.in_channels = in_channels
         self.model_channels = model_channels
-        self.depth = depth
         self.num_res_blocks = num_res_blocks
         self.transformer_block_dim = transformer_block_dim
         self.context_dim = context_dim
