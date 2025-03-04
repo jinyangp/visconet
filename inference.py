@@ -102,7 +102,15 @@ if __name__ == "__main__":
     parser.add_argument("--eta", type=float, default=0., help="eta value that controls how much noise is added to image at each reverse step in diffusion process")
     
     parser.add_argument("--controlnet_scales", type=valid_float_list, default=[1.0]*13, help="Comma-separated list of 13 float values between 0.0 and 1.0")
-    parser.add_argument("--log_controlnet_bias_scales_grid", action="store_true", help="Whether to log a grid for different controlnet and bias scales.")
+    # NOTE: Grids for tracking how output generation changes across parameters
+    parser.add_argument("--log_controlnet_scales_grid", action="store_true", help="Whether to log a grid for different controlnet scales.")
+    
+    parser.add_argument("--log_controlnet_bias_scales_grid", action="store_true", help="Whether to log a grid for different controlnet and bias scales.") # NOTE: to log the effects of different controlnet and ip-adapter scales
+    
+    parser.add_argument("--log_controlnet_loraq_scales_grid", action="store_true", help="Whether to log a grid for different controlnet and lora q scales.") # NOTE: to log the effects of different controlnet and ip-adapter scales
+    parser.add_argument("--log_controlnet_lorav_scales_grid", action="store_true", help="Whether to log a grid for different controlnet and lora v scales.") # NOTE: to log the effects of different controlnet and ip-adapter scales
+
+    parser.add_argument("--log_lora_scales_grid", action="store_true", help="Whether to log a grid for different lora scales") # NOTE: to log the effects of different lora scales
     args = parser.parse_args()
 
     # STEP: Get the file path to the source and target image
@@ -199,49 +207,232 @@ if __name__ == "__main__":
 
     results = [x_samples[i] for i in range(num_samples)]
 
-    control_net_scales = [i*0.2 for i in range(0,6)] # [i*0.2 for i in range(1,6)]
-    bias_scales = [i*0.2 for i in range(0,6)] # [i*0.2 for i in range(1,6)] 
-    if args.log_controlnet_bias_scales_grid:
-        assert control_net_scales and bias_scales, "ucg_values and ddim_steps values must be provided to plot grid."
-
-        if config.save_memory:
-            model.low_vram_shift(is_diffusing=True)
-
-        # STEP: Generate images
-        grid_images = []
-        for cs in control_net_scales:
-            for bs in bias_scales:
-                    
-                control_scales = [cs]*13
-                model.control_scales = control_scales   
-                model.bias_scale = bs
-                
-                samples, _ = ddim_sampler.sample(args.ddim_steps, num_samples, latent_shape,
-                                    cond, verbose=False, eta=args.eta,
-                                    unconditional_guidance_scale=args.cfg_scale,
-                                    unconditional_conditioning=un_cond)
-                
-                x_samples = model.decode_first_stage(samples)
-                grid_images.append(x_samples)
-
-            if config.save_memory:
-                model.low_vram_shift(is_diffusing=False)
-
-        grid_images = torch.stack(grid_images, dim=0) # shape [NC,B,C,H,W] where NC is the number of combinations of parameters to test for
-        grid_images = grid_images.permute(1,0,2,3,4) # shape [B, NC, C, H, W]
-        grid_images = torch.clamp(grid_images.detach().cpu() * 0.5 + 0.5, 0., 1.)
-        grid_images = torch.clamp(grid_images*255., min=0., max=255.) # to convert grid to range of [0,255]
-        img_grid = make_grid(grid_images.squeeze(0), nrow=len(control_net_scales), padding=5, pad_value=1.0)
-        img_grid_np = img_grid.permute(1,2,0).detach().cpu().numpy()
-        img_grid_np = img_grid_np.astype(np.uint8)
-
-        if args.output_dir:
-            filename='controlnet_bias_scales_grid.png'
-            path = os.path.join(args.output_dir, filename)
-            Image.fromarray(img_grid_np).save(path)
-
     if args.output_dir:
         os.makedirs(os.path.join(os.getcwd(), args.output_dir), exist_ok=True)
         for idx,res in enumerate(results):
             res_pil = Image.fromarray(res)
             res_pil.save(os.path.join(args.output_dir, f"image_{idx}.png"))
+
+    DEFAULT_SCALE_VALUES = {
+        "controlnet_scales": 1.0,
+        "lora_q_scales": 1.0,
+        "lora_v_scales": 1.0
+    }
+
+    def log_grid_img(params_dict):
+
+        '''
+        Args:
+            param_a_vals: list, list of values for parameter a to do grid search over
+            param_b_vals: list, list of values for parameter b to do grid search over
+
+        If only param_a_vals provided, we plot a matrix. Otherwise, we plot a row of values for param_a_vals
+        '''
+
+        assert all(k in ["controlnet_scales", "ip_scales", "lora_q_scales", "lora_v_scales"] for k in params_dict.keys()), "Invalid param provided."
+
+        if config.save_memory:
+            model.low_vram_shift(is_diffusing=True)
+                 
+        grid_images = []
+        keys = [k for k in params_dict.keys()]
+        
+        # NOTE: Generate a row
+        if len(keys) == 1:
+            param_a, param_a_vals = keys[0], params_dict[keys[0]]
+            for param_a_val in param_a_vals:
+                if param_a == "controlnet_scales":
+                    control_scales = [param_a_val]*13
+                    model.control_scales = control_scales
+                samples, _ = ddim_sampler.sample(args.ddim_steps, num_samples, latent_shape,
+                                    cond, verbose=False, eta=args.eta,
+                                    unconditional_guidance_scale=args.cfg_scale,
+                                    unconditional_conditioning=un_cond)          
+                x_samples = model.decode_first_stage(samples)
+                grid_images.append(x_samples)
+        
+        # NOTE: Generate a grid
+        else:
+            param_a, param_a_vals = keys[0], params_dict[keys[0]]
+            param_b, param_b_vals = keys[1], params_dict[keys[1]]
+
+            for param_a_val in param_a_vals:
+                for param_b_val in param_b_vals:
+                    if param_a == "controlnet_scales":
+                        control_scales = [param_a_val]*13
+                        model.control_scales = control_scales
+                    # TODO: Implement one for contrlnet_scale and ip_scale
+                    elif param_a == "controlnet_scales" and param_b == "lora_v_scales":
+                        control_scales = [param_a_val]*13
+                        model.control_scales = control_scales
+                        model.model.diffusion_model.set_lora_scales(v_scale=param_b_val)
+                    elif param_a == "controlnet_scales" and param_b == "lora_q_scales":
+                        control_scales = [param_a_val]*13
+                        model.control_scales = control_scales
+                        model.model.diffusion_model.set_lora_scales(q_scale=param_b_val)
+                    elif param_a == "lora_q_scales" and param_b == "lora_v_scales":
+                        model.model.diffusion_model.set_lora_scales(q_scale=param_a_val,v_scale=param_b_val)
+                                
+                    samples, _ = ddim_sampler.sample(args.ddim_steps, num_samples, latent_shape,
+                                    cond, verbose=False, eta=args.eta,
+                                    unconditional_guidance_scale=args.cfg_scale,
+                                    unconditional_conditioning=un_cond)
+                
+                    x_samples = model.decode_first_stage(samples)
+                    grid_images.append(x_samples)
+
+        if config.save_memory:
+            model.low_vram_shift(is_diffusing=False)
+
+        grid_images = torch.stack(grid_images, dim=0) # shape [NC,B,C,H,W] where NC is the number of combinations of parameters to test for
+        grid_images = grid_images.permute(1,0,2,3,4) # shape [B, NC, C, H, W]
+        grid_images = torch.clamp(grid_images.detach().cpu() * 0.5 + 0.5, 0., 1.)
+        grid_images = torch.clamp(grid_images*255., min=0., max=255.) # to convert grid to range of [0,255]
+        img_grid = make_grid(grid_images.squeeze(0), nrow=len(param_a_vals), padding=5, pad_value=1.0)
+        img_grid_np = img_grid.permute(1,2,0).detach().cpu().numpy()
+        img_grid_np = img_grid_np.astype(np.uint8)
+
+        if args.output_dir:
+            filename=f'{param_a}_{param_b}_grid.png' if len(keys) > 1 else f'{param_a}_grid.png'
+            path = os.path.join(args.output_dir, filename)
+            Image.fromarray(img_grid_np).save(path)
+
+        # reset values back to default values
+        model.control_sacles = [DEFAULT_SCALE_VALUES["controlnet_scales"]]*13
+        if model.use_lora:
+            model.model.diffusion_model.set_lora_scales(q_scale=DEFAULT_SCALE_VALUES["lora_q_scales"], v_scale=DEFAULT_SCALE_VALUES["lora_v_scales"])
+
+    # STEP: Log images generated using differnt controlnet scales only
+    if args.log_controlnet_scales_grid:        
+        # if config.save_memory:
+        #     model.low_vram_shift(is_diffusing=True)
+
+        # control_net_scales = [i*0.2 for i in range(0,6)] # [i*0.2 for i in range(1,6)]
+        # grid_images = []
+        # for cs in control_net_scales:
+
+        #     control_scales = [cs]*13
+        #     model.control_scales = control_scales
+            
+        #     samples, _ = ddim_sampler.sample(args.ddim_steps, num_samples, latent_shape,
+        #                         cond, verbose=False, eta=args.eta,
+        #                         unconditional_guidance_scale=args.cfg_scale,
+        #                         unconditional_conditioning=un_cond)
+            
+        #     x_samples = model.decode_first_stage(samples)
+        #     grid_images.append(x_samples)
+
+        # if config.save_memory:
+        #     model.low_vram_shift(is_diffusing=False)
+
+        # grid_images = torch.stack(grid_images, dim=0) # shape [NC,B,C,H,W] where NC is the number of combinations of parameters to test for
+        # grid_images = grid_images.permute(1,0,2,3,4) # shape [B, NC, C, H, W]
+        # grid_images = torch.clamp(grid_images.detach().cpu() * 0.5 + 0.5, 0., 1.)
+        # grid_images = torch.clamp(grid_images*255., min=0., max=255.) # to convert grid to range of [0,255]
+        # img_grid = make_grid(grid_images.squeeze(0), nrow=len(control_net_scales), padding=5, pad_value=1.0)
+        # img_grid_np = img_grid.permute(1,2,0).detach().cpu().numpy()
+        # img_grid_np = img_grid_np.astype(np.uint8)
+
+        # if args.output_dir:
+        #     filename='controlnet_bias_scales_grid.png'
+        #     path = os.path.join(args.output_dir, filename)
+        #     Image.fromarray(img_grid_np).save(path)
+        log_grid_img(params_dict={"controlnet_scales": [i*0.2 for i in range(0,6)]})
+
+    # STEP: Log images generated using different controlnet and ip-adapter scales
+    if args.log_controlnet_bias_scales_grid:
+
+        # control_net_scales = [i*0.2 for i in range(0,6)] # [i*0.2 for i in range(1,6)]
+        # bias_scales = [i*0.2 for i in range(0,6)] # [i*0.2 for i in range(1,6)] 
+                
+        # assert control_net_scales and bias_scales, "ucg_values and ddim_steps values must be provided to plot grid."
+
+        # if config.save_memory:
+        #     model.low_vram_shift(is_diffusing=True)
+
+        # # STEP: Generate images
+        # grid_images = []
+        # for cs in control_net_scales:
+        #     for bs in bias_scales:
+                    
+        #         control_scales = [cs]*13
+        #         model.control_scales = control_scales   
+        #         model.bias_scale = bs
+                
+        #         samples, _ = ddim_sampler.sample(args.ddim_steps, num_samples, latent_shape,
+        #                             cond, verbose=False, eta=args.eta,
+        #                             unconditional_guidance_scale=args.cfg_scale,
+        #                             unconditional_conditioning=un_cond)
+                
+        #         x_samples = model.decode_first_stage(samples)
+        #         grid_images.append(x_samples)
+
+        # if config.save_memory:
+        #     model.low_vram_shift(is_diffusing=False)
+
+        # grid_images = torch.stack(grid_images, dim=0) # shape [NC,B,C,H,W] where NC is the number of combinations of parameters to test for
+        # grid_images = grid_images.permute(1,0,2,3,4) # shape [B, NC, C, H, W]
+        # grid_images = torch.clamp(grid_images.detach().cpu() * 0.5 + 0.5, 0., 1.)
+        # grid_images = torch.clamp(grid_images*255., min=0., max=255.) # to convert grid to range of [0,255]
+        # img_grid = make_grid(grid_images.squeeze(0), nrow=len(control_net_scales), padding=5, pad_value=1.0)
+        # img_grid_np = img_grid.permute(1,2,0).detach().cpu().numpy()
+        # img_grid_np = img_grid_np.astype(np.uint8)
+
+        # if args.output_dir:
+        #     filename='controlnet_bias_scales_grid.png'
+        #     path = os.path.join(args.output_dir, filename)
+        #     Image.fromarray(img_grid_np).save(path)
+        pass
+
+    # STEP: Log images generated using differnt controlnet scales and lora_v_scale only
+    if args.log_controlnet_lorav_scales_grid:
+        log_grid_img(params_dict={
+                                "controlnet_scales": [i*0.2 for i in range(0,6)],
+                                "lora_v_scales": [i*0.2 for i in range(0,6)]
+                                })
+
+    # STEP: Log images generated using different LoRA fine-tuning scales for background if applicable
+    if args.log_lora_scales_grid:
+
+        # assert model.use_lora, "use_lora attribute must be set to True."
+        
+        # # NOTE: diffusion unet controlledunetmodel can be accessed via: model.model.diffusion_model
+        # lora_q_scales = [i*0.2 for i in range(0,6)]
+        # lora_v_scales = [i*0.2 for i in range(0,6)]
+        
+        # if config.save_memory:
+        #     model.low_vram_shift(is_diffusing=True)
+        
+        # # STEP: Generate images
+        # grid_images = []
+        # for q_scale in lora_q_scales:
+        #     for v_scale in lora_v_scales:
+                    
+        #         model.model.diffusion_model.set_lora_scales(q_scale=q_scale, v_scale=v_scale)
+        #         samples, _ = ddim_sampler.sample(args.ddim_steps, num_samples, latent_shape,
+        #                             cond, verbose=False, eta=args.eta,
+        #                             unconditional_guidance_scale=args.cfg_scale,
+        #                             unconditional_conditioning=un_cond)
+                
+        #         x_samples = model.decode_first_stage(samples)
+        #         grid_images.append(x_samples)
+
+        # if config.save_memory:
+        #     model.low_vram_shift(is_diffusing=False)
+
+        # grid_images = torch.stack(grid_images, dim=0) # shape [NC,B,C,H,W] where NC is the number of combinations of parameters to test for
+        # grid_images = grid_images.permute(1,0,2,3,4) # shape [B, NC, C, H, W]
+        # grid_images = torch.clamp(grid_images.detach().cpu() * 0.5 + 0.5, 0., 1.)
+        # grid_images = torch.clamp(grid_images*255., min=0., max=255.) # to convert grid to range of [0,255]
+        # img_grid = make_grid(grid_images.squeeze(0), nrow=len(lora_q_scales), padding=5, pad_value=1.0)
+        # img_grid_np = img_grid.permute(1,2,0).detach().cpu().numpy()
+        # img_grid_np = img_grid_np.astype(np.uint8)
+
+        # if args.output_dir:
+        #     filename='lora_qv_scales_grid.png'
+        #     path = os.path.join(args.output_dir, filename)
+        #     Image.fromarray(img_grid_np).save(path)
+        log_grid_img(params_dict={
+                                "lora_q_scales": [i*0.2 for i in range(0,6)],
+                                "lora_v_scales": [i*0.2 for i in range(0,6)]
+                                })

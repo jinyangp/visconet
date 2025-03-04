@@ -798,3 +798,30 @@ class UNetModel(nn.Module):
             return self.id_predictor(h)
         else:
             return self.out(h)
+
+    def set_lora_scales(self, q_scale=1.0, v_scale=1.0):
+        
+        assert self.use_lora, "LoRA fine-tuning must be used to use this function."
+
+        '''
+        NOTE: referencing this code where channel_mult=[1,2,4,4] and we know that in decoder, only 3 res blocks per layer       
+            #  if isinstance(num_res_blocks, int):
+            # self.num_res_blocks = len(channel_mult) * [num_res_blocks]
+        '''
+        num_blocks = len(self.attention_resolutions)*(len(self.num_res_blocks)-1)
+        if isinstance(q_scale, float):
+           q_scale = num_blocks*[q_scale]
+        # NOTE: a list of length num_blocks with the first element being the deepest block
+        elif isinstance(q_scale,list):
+            assert len(q_scale) == num_blocks, "Number of scale values must match the number of blocks."
+        
+        if isinstance(v_scale, float):
+           v_scale = num_blocks*[v_scale]
+        elif isinstance(v_scale, list):
+            assert len(v_scale) == num_blocks, "Number of scale values must match the number of blocks." 
+
+        for block in self.output_blocks:
+            for layer in block:
+                if isinstance(layer, SpatialTransformer):
+                    layer.lora_q_scale = q_scale.pop(0)
+                    layer.lora_v_scale = v_scale.pop(0)
