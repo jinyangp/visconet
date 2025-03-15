@@ -23,32 +23,32 @@ from annotator.openpose.get_pose_hf import get_openpose_annotations
 from torchvision import transforms as T
 from torchvision.utils import make_grid
 
-def log_sample(seed, results, prompt, skeleton_image,  mask_image, control_scales, *viscon_images):
-    time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+# def log_sample(seed, results, prompt, skeleton_image,  mask_image, control_scales, *viscon_images):
+#     time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-    APP_FILES_PATH = Path('./app_files')
-    LOG_PATH = APP_FILES_PATH/'logs'
+#     APP_FILES_PATH = Path('./app_files')
+#     LOG_PATH = APP_FILES_PATH/'logs'
     
-    log_dir = LOG_PATH/time_str
-    os.makedirs(str(log_dir), exist_ok=True)
+#     log_dir = LOG_PATH/time_str
+#     os.makedirs(str(log_dir), exist_ok=True)
 
-    # save result
-    concat = np.hstack((skeleton_image, *results))
-    Image.fromarray(skeleton_image).save(str(log_dir/'skeleton.jpg'))   
-    Image.fromarray(mask_image).save(str(log_dir/'mask.png'))
-    for i, result in enumerate(results):
-        Image.fromarray(result).save(str(log_dir/f'result_{i}.jpg'))
+#     # save result
+#     concat = np.hstack((skeleton_image, *results))
+#     Image.fromarray(skeleton_image).save(str(log_dir/'skeleton.jpg'))   
+#     Image.fromarray(mask_image).save(str(log_dir/'mask.png'))
+#     for i, result in enumerate(results):
+#         Image.fromarray(result).save(str(log_dir/f'result_{i}.jpg'))
 
-    # save text
-    with open(str(log_dir/'info.txt'),'w') as f:
-        f.write(f'prompt: {prompt} \n')
-        f.write(f'seed: {seed}\n')
-        control_str = [str(x) for x in control_scales]
-        f.write(','.join(control_str) + '\n')
-    # save vison images
-    for style_name, style_image in zip(style_names, viscon_images):
-        if style_image is not None:
-            style_image.save(str(log_dir/f'{style_name}.jpg'))
+#     # save text
+#     with open(str(log_dir/'info.txt'),'w') as f:
+#         f.write(f'prompt: {prompt} \n')
+#         f.write(f'seed: {seed}\n')
+#         control_str = [str(x) for x in control_scales]
+#         f.write(','.join(control_str) + '\n')
+#     # save vison images
+#     for style_name, style_image in zip(style_names, viscon_images):
+#         if style_image is not None:
+#             style_image.save(str(log_dir/f'{style_name}.jpg'))
 '''
 if log_samples:
     log_sample(seed, results, prompt, detected_map, mask_image, control_scales, *viscon_images)
@@ -182,9 +182,9 @@ if __name__ == "__main__":
     }
 
     # STEP: Get source image embeddings
-    if model.use_bias:
+    if model.use_ip:
         src_img_latent = src_img
-        if model.bias_mask_only:
+        if model.ip_mask_only:
             src_img_latent, _ = model.control_cond_model.human_segmentor(src_img)
         encoder_posterior = model.encode_first_stage(src_img_latent.unsqueeze(0))
         src_img_latent = model.get_first_stage_encoding(encoder_posterior).detach()
@@ -229,7 +229,7 @@ if __name__ == "__main__":
         If only param_a_vals provided, we plot a matrix. Otherwise, we plot a row of values for param_a_vals
         '''
 
-        assert all(k in ["controlnet_scales", "ip_scales", "lora_q_scales", "lora_v_scales"] for k in params_dict.keys()), "Invalid param provided."
+        assert all(k in ["controlnet_scales", "ip_context_scale", "lora_q_scales", "lora_v_scales"] for k in params_dict.keys()), "Invalid param provided."
 
         if config.save_memory:
             model.low_vram_shift(is_diffusing=True)
@@ -258,10 +258,11 @@ if __name__ == "__main__":
 
             for param_a_val in param_a_vals:
                 for param_b_val in param_b_vals:
-                    if param_a == "controlnet_scales":
+                    if param_a == "controlnet_scales" and param_b == "ip_context_scale":
                         control_scales = [param_a_val]*13
                         model.control_scales = control_scales
-                    # TODO: Implement one for contrlnet_scale and ip_scale
+                        model.ip_context_scale = param_b_val
+                    # TODO: Implement one for controlnet_scale and ip_scale
                     elif param_a == "controlnet_scales" and param_b == "lora_v_scales":
                         control_scales = [param_a_val]*13
                         model.control_scales = control_scales
@@ -382,7 +383,8 @@ if __name__ == "__main__":
         #     filename='controlnet_bias_scales_grid.png'
         #     path = os.path.join(args.output_dir, filename)
         #     Image.fromarray(img_grid_np).save(path)
-        pass
+        log_grid_img(params_dict={"controlnet_scales": [i*0.2 for i in range(0,6)],
+                                  "ip_context_scale": [i*0.2 for i in range(0,6)]})
 
     # STEP: Log images generated using differnt controlnet scales and lora_v_scale only
     if args.log_controlnet_lorav_scales_grid:

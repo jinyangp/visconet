@@ -16,15 +16,14 @@ from visconet.control_cond_modules.util import resize_img_tensor
 class ViscoNetLDM(LatentDiffusion):
 
     def __init__(self, control_stage_config, control_key, only_mid_control, control_cond_config,
-                 control_crossattn_key, src_encoder_config=None, mask_key=None, enable_mask=True, p_cg=None, use_bias=False,
-                 bias_mask_only=False, use_lora=False, lora_apply_mask_only=False ,*args, **kwargs):
+                 control_crossattn_key, src_encoder_config=None, mask_key=None, enable_mask=True, p_cg=None, use_ip=False,
+                 ip_mask_only=False, ip_locked=False, control_model_locked=False, use_lora=False, lora_apply_mask_only=False ,*args, **kwargs):
         super().__init__(*args, **kwargs, lora_apply_mask_only=lora_apply_mask_only)
         self.control_model = instantiate_from_config(control_stage_config)
         self.control_key = control_key # image pose prompt - for openpose
         self.control_crossattn_key = control_crossattn_key # image pose prompt - for fashion attribute styles
         self.only_mid_control = only_mid_control
         self.control_scales = [1.0] * 13
-        self.bias_scale = 1.0
         self.enable_mask = enable_mask
         self.mask_enables = [1 if enable_mask else 0] * 13
         self.mask_key = mask_key
@@ -36,12 +35,16 @@ class ViscoNetLDM(LatentDiffusion):
         if self.p_cg: # NOTE: If ucg is to be used, assign a value of 0.05 in config YAML file
             self.cg_prng = np.random.RandomState()
 
-        self.use_bias = use_bias
-        self.bias_mask_only = bias_mask_only
-        if self.use_bias:
+        self.use_ip = use_ip
+        self.ip_mask_only = ip_mask_only
+        self.ip_context_scale = 1.0
+        self.ip_locked = ip_locked
+        if self.use_ip:
             self.src_encoder = instantiate_from_config(src_encoder_config)
-
+        
         self.use_lora = use_lora
+        
+        self.control_model_locked = control_model_locked
 
     '''
     # NOTE: get_input() and apply_model() are used behind the scenes in the training_step which is a necessary step needed to be implemented to use Pytorch Lightning
@@ -102,8 +105,8 @@ class ViscoNetLDM(LatentDiffusion):
         if self.mask_key:
             ret_dict["c_concat_mask"] = [torch.stack(human_masks,dim=0)]
 
-        if self.use_bias:
-            if self.bias_mask_only:
+        if self.use_ip:
+            if self.ip_mask_only:
                 src_img_masks = []
                 for src_img in src_img_pils:
                     src_img_mask, _ = self.control_cond_model.human_segmentor(src_img)
@@ -197,9 +200,9 @@ class ViscoNetLDM(LatentDiffusion):
             
             if 'c_src' in cond.keys():
                 src = torch.cat(cond['c_src'], 1) # for bias, to be used in decoder
-                biases = self.src_encoder(src)
-                biases = [b*self.bias_scale for b in biases]
-                eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=control, bias=biases, only_mid_control=self.only_mid_control)
+                ip_contexts = self.src_encoder(src)
+                ip_contexts = [b*self.ip_context_scale for b in ip_contexts]
+                eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=control, ip_context=ip_contexts, only_mid_control=self.only_mid_control)
 
             # STEP: If IP-Adapter is being used here, we concatenate them along the same dimension and chunk them for processing
             # concatenate by torch.cat((cond_text,cond_img), dim=1)
@@ -234,7 +237,7 @@ class ViscoNetLDM(LatentDiffusion):
         # c_text: the text prompt
         # c_concat_mask: the human mask to apply
         # c_crossattn: the style attributes
-        if self.use_bias:
+        if self.use_ip:
             c_src = c['c_src'][0][:N]
 
         c_cat, c_text, mask = c["c_concat"][0][:N], c["c_text"][0][:N], c["c_concat_mask"][0][:N]
@@ -276,7 +279,7 @@ class ViscoNetLDM(LatentDiffusion):
                 "c_text":[self.get_learned_conditioning([n_prompt] * N)],
                 'c_concat_mask': [torch.zeros_like(mask)] }
         
-        if self.use_bias:
+        if self.use_ip:
             cond['c_src'] = [c_src]
             un_cond['c_src'] = [torch.zeros_like(c_src)]
         
@@ -369,7 +372,7 @@ class ViscoNetLDM(LatentDiffusion):
             os.makedirs(str(root_name), exist_ok=True)        
         
         # STEP: inference
-        images = self.log_images(batch, N=len(batch), ddim_steps=100, 
+        images = self.log_images(batch, N=len(batch), ddim_steps=100,
                                  unconditional_guidance_scale=14.0, sample=True,
                                  log_ucg_ddimsteps_grid=log_ucg_ddimsteps_grid, ucg_values=ucg_values,
                                  ddim_steps_values=ddim_steps_values)
@@ -431,11 +434,38 @@ class ViscoNetLDM(LatentDiffusion):
                 path = os.path.join(grid_root, filename)
                 Image.fromarray(img_grid_np).save(path)
 
+    def get_num_parameters(self):
+        print("Number of parameters")
+        # STEP: Get number of parameters for controlnet
+        controlnet_trainable_params = sum(p.numel() for p in self.control_model.parameters() if p.requires_grad)
+        print(f"Number of parameters (ControlNet): {controlnet_trainable_params / 1_000_000:.1f}M")
+        
+        # STEP: Get number of parameters for control_cond_model
+        H_E_trainable_params = sum(p.numel() for p in self.control_cond_model.parameters() if p.requires_grad)
+        print(f"Number of parameters (H_E): {H_E_trainable_params / 1_000_000:.1f}M")
+
+        # STEP: Get number of parameters for style extractor module
+        # STEP: Get number of parameters for ip_adapter matrices
+        if self.use_ip:
+            H_S_trainable_params = sum(p.numel() for p in self.src_encoder.parameters() if p.requires_grad)
+            print(f"Number of parameters (H_S): {H_S_trainable_params / 1_000_000:.1f}M")
+            
+            H_A_trainable_params = sum(p.numel() for n, p in self.model.named_parameters() if 'ip' in n and p.requires_grad)
+            print(f"Number of parameters (H_A): {H_A_trainable_params / 1_000_000:.1f}M")
+        
+        # STEP: Get number of parameters for lora finetuning
+        if self.use_lora:
+            lora_trainable_params = sum(p.numel() for n, p in self.model.named_parameters() if 'lora' in n and p.requires_grad)
+            print(f"Number of parameters (LoRA): {lora_trainable_params / 1_000_000:.1f}M")
+        print("END!")
+
     def configure_optimizers(self):
         lr = self.learning_rate
-        params = list(self.control_model.parameters())
-        params += list(self.control_cond_model.parameters())
-        if self.use_bias:
+        params = []
+        if not self.control_model_locked:
+            params += list(self.control_model.parameters())
+            params += list(self.control_cond_model.parameters())
+        if self.use_ip and not self.ip_locked:
             params += list(self.src_encoder.parameters())
             params += [p for n, p in self.model.named_parameters() if 'ip' in n]
         if self.use_lora:

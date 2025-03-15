@@ -76,12 +76,12 @@ class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
     support it as an extra input.
     """
 
-    def forward(self, x, emb, context=None, bias=None):
+    def forward(self, x, emb, context=None, ip_context=None):
         for layer in self:
             if isinstance(layer, TimestepBlock):
                 x = layer(x, emb)
             elif isinstance(layer, SpatialTransformer):
-                x = layer(x, context, bias)
+                x = layer(x, context, ip_context)
             else:
                 x = layer(x)
         return x
@@ -469,7 +469,9 @@ class UNetModel(nn.Module):
         num_attention_blocks=None,
         disable_middle_self_attn=False,
         use_linear_in_transformer=False,
-        use_bias=False,
+        use_ip=False,
+        ip_embed_seq_len=None,
+        ip_rank=None,
         use_lora=False,
         lora_rank=None,
         lora_q_scale=1.0,
@@ -535,7 +537,10 @@ class UNetModel(nn.Module):
             linear(time_embed_dim, time_embed_dim),
         )
 
-        self.use_bias = use_bias
+        # STEP: For ip-adapter embed addition in decoder
+        self.use_ip = use_ip
+        self.ip_embed_seq_len = ip_embed_seq_len
+        self.ip_rank = ip_rank
         
         # STEP: For LoRA
         self.use_lora = use_lora
@@ -713,8 +718,9 @@ class UNetModel(nn.Module):
                             ) if not use_spatial_transformer else SpatialTransformer(
                                 ch, num_heads, dim_head, depth=transformer_depth, context_dim=context_dim,
                                 disable_self_attn=disabled_sa, use_linear=use_linear_in_transformer,
-                                use_checkpoint=use_checkpoint, use_bias=self.use_bias, use_lora=self.use_lora, lora_rank=self.lora_rank,
-                                lora_q_scale=self.lora_q_scale, lora_v_scale=self.lora_v_scale
+                                use_checkpoint=use_checkpoint, use_ip=self.use_ip, ip_embed_seq_len=self.ip_embed_seq_len,
+                                ip_rank=self.ip_rank, use_lora=self.use_lora, lora_rank=self.lora_rank, lora_q_scale=self.lora_q_scale,
+                                lora_v_scale=self.lora_v_scale
                             )
                         )
                 if level and i == self.num_res_blocks[level]:

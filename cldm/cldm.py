@@ -19,7 +19,7 @@ from ldm.util import log_txt_as_img, exists, instantiate_from_config
 from ldm.models.diffusion.ddim import DDIMSampler
 
 class ControlledUnetModel(UNetModel):
-    def forward(self, x, timesteps=None, context=None, control=None, bias=None, only_mid_control=False, **kwargs):
+    def forward(self, x, timesteps=None, context=None, control=None, ip_context=None, only_mid_control=False, **kwargs):
         hs = []
         with torch.no_grad():
             t_emb = timestep_embedding(timesteps, self.model_channels, repeat_only=False)
@@ -39,9 +39,9 @@ class ControlledUnetModel(UNetModel):
             else:
                 h = torch.cat([h, hs.pop() + control.pop()], dim=1)
             
-            if bias and any(isinstance(layer, SpatialTransformer) for layer in module):
-                b = bias.pop()
-                h = module(h, emb, context, bias=b)
+            if ip_context and any(isinstance(layer, SpatialTransformer) for layer in module):
+                ctxt = ip_context.pop()
+                h = module(h, emb, context, ip_context=ctxt)
             else:
                 h = module(h, emb, context)
 
