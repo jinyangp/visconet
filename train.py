@@ -72,13 +72,6 @@ def main(args):
     model.sd_locked = sd_locked
     model.only_mid_control = only_mid_control
 
-    # NOTE: Weshould not reset attention laer weights if using improved architecture from the start
-    # using baseline from scratch, using own/baseline model from trained checkpoint
-    # if (resume_path == DEFAULT_CKPT and model.control_cond_model.use_baseline) or (resume_path != DEFAULT_CKPT): 
-    #     reset_crossattn = False
-    # else:
-    #     reset_crossattn = True
-
     # NOTE: In newest iteration, we never reset the cross attention layer weights
     reset_crossattn = False
     # initialize cross attention weights

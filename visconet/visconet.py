@@ -118,15 +118,6 @@ class ViscoNetLDM(LatentDiffusion):
                 src_x, _ = super().get_input(batch, "src_img", *args, **kwargs)
                 ret_dict["c_src"] = [src_x]
   
-        # NOTE: Old way
-        # -------
-        # if self.control_crossattn_key:
-        #     ret_dict['c_crossattn']=[format_input(self.control_crossattn_key)]
-
-        # if self.mask_key:
-        #     ret_dict['c_concat_mask']=[format_input(self.mask_key)]
-        # -------
-
         return x, ret_dict
 
     def training_step(self, batch, batch_idx):
@@ -193,19 +184,12 @@ class ViscoNetLDM(LatentDiffusion):
             
             # Get the list o controls by applying the mask level-wise to each level's output    
             control = [mask_control(c, mask_enable) * scale for c, scale, mask_enable in zip(control, self.control_scales, self.mask_enables)]
-            # NOTE: Run it through the UNET model forward function with the signature
-            # def forward(self, x, timesteps=None, context=None, y=None,**kwargs):
-            # NOTE: We are using the ControlledUnetModel class in the config file which overrides original forward method o 
-            # UNET to use control and only_mid_control arguments
             
             if 'c_src' in cond.keys():
                 src = torch.cat(cond['c_src'], 1) # for bias, to be used in decoder
                 ip_contexts = self.src_encoder(src)
-                ip_contexts = [b*self.ip_context_scale for b in ip_contexts]
+                ip_contexts = [ctxt*self.ip_context_scale for ctxt in ip_contexts]
                 eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=control, ip_context=ip_contexts, only_mid_control=self.only_mid_control)
-
-            # STEP: If IP-Adapter is being used here, we concatenate them along the same dimension and chunk them for processing
-            # concatenate by torch.cat((cond_text,cond_img), dim=1)
             else:
                 eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=control, only_mid_control=self.only_mid_control)
 
@@ -224,11 +208,6 @@ class ViscoNetLDM(LatentDiffusion):
 
         log = dict()
         
-        # NOTE: The image being fed into the VAE to get the latents is the target image
-        # NOTE: The pose comes from the target image as well
-        # NOTE: The style comes from the target image as well
-
-        # NOTE: z holds the latents of the source image
         z, c = self.get_input(batch, self.first_stage_key, bs=N)
         N = min(z.shape[0], N)
         n_row = min(z.shape[0], n_row)
@@ -488,4 +467,3 @@ class ViscoNetLDM(LatentDiffusion):
             self.control_model = self.control_model.cpu()
             self.first_stage_model = self.first_stage_model.to(self.device)
             self.cond_stage_model = self.cond_stage_model.to(self.device)
-

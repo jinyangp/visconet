@@ -25,10 +25,6 @@ def convert_fname(x):
     x = a + '/' +b[:i] + b[i+1:]
     return 'fashion'+x.split('.jpg')[0].replace('id_','id').replace('/','')
 
-# TODO: to be implemented later
-def get_fashion_attributes(img_fp, output_dir=None):
-    raise NotImplementedError
-
 def get_human_mask(img_fp, output_dir=None):
     
     img_full_fp = os.path.join(IMG_ROOT_DIR, img_fp)

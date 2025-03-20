@@ -23,37 +23,6 @@ from annotator.openpose.get_pose_hf import get_openpose_annotations
 from torchvision import transforms as T
 from torchvision.utils import make_grid
 
-# def log_sample(seed, results, prompt, skeleton_image,  mask_image, control_scales, *viscon_images):
-#     time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-
-#     APP_FILES_PATH = Path('./app_files')
-#     LOG_PATH = APP_FILES_PATH/'logs'
-    
-#     log_dir = LOG_PATH/time_str
-#     os.makedirs(str(log_dir), exist_ok=True)
-
-#     # save result
-#     concat = np.hstack((skeleton_image, *results))
-#     Image.fromarray(skeleton_image).save(str(log_dir/'skeleton.jpg'))   
-#     Image.fromarray(mask_image).save(str(log_dir/'mask.png'))
-#     for i, result in enumerate(results):
-#         Image.fromarray(result).save(str(log_dir/f'result_{i}.jpg'))
-
-#     # save text
-#     with open(str(log_dir/'info.txt'),'w') as f:
-#         f.write(f'prompt: {prompt} \n')
-#         f.write(f'seed: {seed}\n')
-#         control_str = [str(x) for x in control_scales]
-#         f.write(','.join(control_str) + '\n')
-#     # save vison images
-#     for style_name, style_image in zip(style_names, viscon_images):
-#         if style_image is not None:
-#             style_image.save(str(log_dir/f'{style_name}.jpg'))
-'''
-if log_samples:
-    log_sample(seed, results, prompt, detected_map, mask_image, control_scales, *viscon_images)
-'''
-
 H = 512
 W = 512
 
@@ -74,7 +43,7 @@ if __name__ == "__main__":
     NOTE: Sample command
     srun -p rtx3090_slab -n 1 --job-name=test --gres=gpu:1 --kill-on-bad-exit=1 python3 -u inference.py data/datasets/deepfashion/imgs/MEN/Denim/id_00000080/01_7_additional.jpg \
     data/datasets/deepfashion/imgs/MEN/Denim/id_00000089/45_7_additional.jpg --output_dir=logs/inference-test  --gpu 0 --config=./configs/visconet_v15_pair.yaml --ckpt=./logs/270125-expt1/last.ckpt \
-    --prompt='a person, plain studio background' --n_prompt='deformed body parts, blurry, noisy background, low definition' --num_samples=3 --ddim_steps=100 --cfg_scale=10.
+    --prompt='a person, plain studio background' --n_prompt='deformed body parts, blurry, noisy background, low definition' --ddim_steps=100 --cfg_scale=10.
     '''
 
     parser = argparse.ArgumentParser()
@@ -95,7 +64,6 @@ if __name__ == "__main__":
     parser.add_argument('--ckpt', type=str, default='./models/visconet_v1.pth', help="relative filepath to model checkpoint file")
     parser.add_argument('--prompt', type=str, default="", help="text prompt about object to condition image generation")
     parser.add_argument("--n_prompt", type=str, default="", help="negative text prompt about image style to pull image generation away")
-    parser.add_argument("--num_samples", type=int, default=3, help="number of samples to generate")
     parser.add_argument("--ddim_steps", type=int, default=50, help="number of inference steps")
     parser.add_argument("--cfg_scale", type=float, default=7.5, help="value of control free guidance scale")
     parser.add_argument("--seed", type=int, default=42, help="seed to base generation on")
@@ -144,7 +112,7 @@ if __name__ == "__main__":
         T.ToTensor()
     ])
 
-    num_samples = args.num_samples
+    num_samples = 1
     # STEP: Get control scales
     control_scales = args.controlnet_scales
     model.control_scales = control_scales
@@ -153,7 +121,7 @@ if __name__ == "__main__":
     dct = model.control_cond_model(src_img, tgt_img, seg_img=seg_img)
     style_attrs_embeds, human_mask = dct["style_attr_embeds"].to(device), dct["human_mask"].to(device)
     style_attrs_embeds = style_attrs_embeds.unsqueeze(0).repeat(num_samples,1,1)
-    human_mask = human_mask.unsqueeze(0).repeat(num_samples,1,1) # TODO: Create one variable for the repeated and not repeated version
+    human_mask = human_mask.unsqueeze(0).repeat(num_samples,1,1)
 
     # STEP: Settle text prompts
     model.cond_stage_model.device = device # Load embeddor for text prompt
@@ -223,6 +191,10 @@ if __name__ == "__main__":
 
         '''
         Args:
+            params_dict: {
+                "param_a": list of param_a values,
+                "param_b": list of param_b values
+            }
             param_a_vals: list, list of values for parameter a to do grid search over
             param_b_vals: list, list of values for parameter b to do grid search over
 
@@ -262,7 +234,6 @@ if __name__ == "__main__":
                         control_scales = [param_a_val]*13
                         model.control_scales = control_scales
                         model.ip_context_scale = param_b_val
-                    # TODO: Implement one for controlnet_scale and ip_scale
                     elif param_a == "controlnet_scales" and param_b == "lora_v_scales":
                         control_scales = [param_a_val]*13
                         model.control_scales = control_scales
@@ -305,135 +276,19 @@ if __name__ == "__main__":
 
     # STEP: Log images generated using differnt controlnet scales only
     if args.log_controlnet_scales_grid:        
-        # if config.save_memory:
-        #     model.low_vram_shift(is_diffusing=True)
-
-        # control_net_scales = [i*0.2 for i in range(0,6)] # [i*0.2 for i in range(1,6)]
-        # grid_images = []
-        # for cs in control_net_scales:
-
-        #     control_scales = [cs]*13
-        #     model.control_scales = control_scales
-            
-        #     samples, _ = ddim_sampler.sample(args.ddim_steps, num_samples, latent_shape,
-        #                         cond, verbose=False, eta=args.eta,
-        #                         unconditional_guidance_scale=args.cfg_scale,
-        #                         unconditional_conditioning=un_cond)
-            
-        #     x_samples = model.decode_first_stage(samples)
-        #     grid_images.append(x_samples)
-
-        # if config.save_memory:
-        #     model.low_vram_shift(is_diffusing=False)
-
-        # grid_images = torch.stack(grid_images, dim=0) # shape [NC,B,C,H,W] where NC is the number of combinations of parameters to test for
-        # grid_images = grid_images.permute(1,0,2,3,4) # shape [B, NC, C, H, W]
-        # grid_images = torch.clamp(grid_images.detach().cpu() * 0.5 + 0.5, 0., 1.)
-        # grid_images = torch.clamp(grid_images*255., min=0., max=255.) # to convert grid to range of [0,255]
-        # img_grid = make_grid(grid_images.squeeze(0), nrow=len(control_net_scales), padding=5, pad_value=1.0)
-        # img_grid_np = img_grid.permute(1,2,0).detach().cpu().numpy()
-        # img_grid_np = img_grid_np.astype(np.uint8)
-
-        # if args.output_dir:
-        #     filename='controlnet_bias_scales_grid.png'
-        #     path = os.path.join(args.output_dir, filename)
-        #     Image.fromarray(img_grid_np).save(path)
         log_grid_img(params_dict={"controlnet_scales": [i*0.2 for i in range(0,6)]})
-
     # STEP: Log images generated using different controlnet and ip-adapter scales
     if args.log_controlnet_bias_scales_grid:
-
-        # control_net_scales = [i*0.2 for i in range(0,6)] # [i*0.2 for i in range(1,6)]
-        # bias_scales = [i*0.2 for i in range(0,6)] # [i*0.2 for i in range(1,6)] 
-                
-        # assert control_net_scales and bias_scales, "ucg_values and ddim_steps values must be provided to plot grid."
-
-        # if config.save_memory:
-        #     model.low_vram_shift(is_diffusing=True)
-
-        # # STEP: Generate images
-        # grid_images = []
-        # for cs in control_net_scales:
-        #     for bs in bias_scales:
-                    
-        #         control_scales = [cs]*13
-        #         model.control_scales = control_scales   
-        #         model.bias_scale = bs
-                
-        #         samples, _ = ddim_sampler.sample(args.ddim_steps, num_samples, latent_shape,
-        #                             cond, verbose=False, eta=args.eta,
-        #                             unconditional_guidance_scale=args.cfg_scale,
-        #                             unconditional_conditioning=un_cond)
-                
-        #         x_samples = model.decode_first_stage(samples)
-        #         grid_images.append(x_samples)
-
-        # if config.save_memory:
-        #     model.low_vram_shift(is_diffusing=False)
-
-        # grid_images = torch.stack(grid_images, dim=0) # shape [NC,B,C,H,W] where NC is the number of combinations of parameters to test for
-        # grid_images = grid_images.permute(1,0,2,3,4) # shape [B, NC, C, H, W]
-        # grid_images = torch.clamp(grid_images.detach().cpu() * 0.5 + 0.5, 0., 1.)
-        # grid_images = torch.clamp(grid_images*255., min=0., max=255.) # to convert grid to range of [0,255]
-        # img_grid = make_grid(grid_images.squeeze(0), nrow=len(control_net_scales), padding=5, pad_value=1.0)
-        # img_grid_np = img_grid.permute(1,2,0).detach().cpu().numpy()
-        # img_grid_np = img_grid_np.astype(np.uint8)
-
-        # if args.output_dir:
-        #     filename='controlnet_bias_scales_grid.png'
-        #     path = os.path.join(args.output_dir, filename)
-        #     Image.fromarray(img_grid_np).save(path)
         log_grid_img(params_dict={"controlnet_scales": [i*0.2 for i in range(0,6)],
                                   "ip_context_scale": [i*0.2 for i in range(0,6)]})
-
     # STEP: Log images generated using differnt controlnet scales and lora_v_scale only
     if args.log_controlnet_lorav_scales_grid:
         log_grid_img(params_dict={
                                 "controlnet_scales": [i*0.2 for i in range(0,6)],
                                 "lora_v_scales": [i*0.2 for i in range(0,6)]
                                 })
-
     # STEP: Log images generated using different LoRA fine-tuning scales for background if applicable
     if args.log_lora_scales_grid:
-
-        # assert model.use_lora, "use_lora attribute must be set to True."
-        
-        # # NOTE: diffusion unet controlledunetmodel can be accessed via: model.model.diffusion_model
-        # lora_q_scales = [i*0.2 for i in range(0,6)]
-        # lora_v_scales = [i*0.2 for i in range(0,6)]
-        
-        # if config.save_memory:
-        #     model.low_vram_shift(is_diffusing=True)
-        
-        # # STEP: Generate images
-        # grid_images = []
-        # for q_scale in lora_q_scales:
-        #     for v_scale in lora_v_scales:
-                    
-        #         model.model.diffusion_model.set_lora_scales(q_scale=q_scale, v_scale=v_scale)
-        #         samples, _ = ddim_sampler.sample(args.ddim_steps, num_samples, latent_shape,
-        #                             cond, verbose=False, eta=args.eta,
-        #                             unconditional_guidance_scale=args.cfg_scale,
-        #                             unconditional_conditioning=un_cond)
-                
-        #         x_samples = model.decode_first_stage(samples)
-        #         grid_images.append(x_samples)
-
-        # if config.save_memory:
-        #     model.low_vram_shift(is_diffusing=False)
-
-        # grid_images = torch.stack(grid_images, dim=0) # shape [NC,B,C,H,W] where NC is the number of combinations of parameters to test for
-        # grid_images = grid_images.permute(1,0,2,3,4) # shape [B, NC, C, H, W]
-        # grid_images = torch.clamp(grid_images.detach().cpu() * 0.5 + 0.5, 0., 1.)
-        # grid_images = torch.clamp(grid_images*255., min=0., max=255.) # to convert grid to range of [0,255]
-        # img_grid = make_grid(grid_images.squeeze(0), nrow=len(lora_q_scales), padding=5, pad_value=1.0)
-        # img_grid_np = img_grid.permute(1,2,0).detach().cpu().numpy()
-        # img_grid_np = img_grid_np.astype(np.uint8)
-
-        # if args.output_dir:
-        #     filename='lora_qv_scales_grid.png'
-        #     path = os.path.join(args.output_dir, filename)
-        #     Image.fromarray(img_grid_np).save(path)
         log_grid_img(params_dict={
                                 "lora_q_scales": [i*0.2 for i in range(0,6)],
                                 "lora_v_scales": [i*0.2 for i in range(0,6)]

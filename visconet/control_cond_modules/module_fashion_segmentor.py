@@ -78,9 +78,8 @@ class FashionSegmentor(nn.Module):
         Reverse normalization to get original pixel values.
 
         Args:
-            - tensor (Tensor): Normalized tensor.
-            - mean (list): Mean values for each channel.
-            - std (list): Standard deviation values for each channel.
+            - normalised_tensor: tensor, of shape [1,c,h,w] tensor to reverse the nrmalisation
+            - mask: tensor, of shape [h,w]
 
         Returns:
             - original_tensor (Tensor): Original tensor.
@@ -179,6 +178,9 @@ class FashionSegmentor(nn.Module):
         Args:
             org_img_tensor: tensor, of original image
             seg_img_tensor: tensor, segmentation mask with mask values being class labels
+            target_label_dict: dict, with key being fashion attribute index and value being fashion attribute value
+            use_seg_model: boolean, boolean flag on whether using pre-trained segmentation model . If seg_image is provided, this is set to False
+            output_dir: str, output directory to save segmented fashion attrbute
         Returns:
             tensor of shape [N, 3, 224, 224] where N is the number of fashion attributes detected in the segmentation
             mask

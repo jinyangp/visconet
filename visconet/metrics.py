@@ -1,5 +1,3 @@
-# TODO: pip install torchmetricsl
-
 # We want to calculate the metrics for SSIM, FID, and LPIPS
 import torch
 
