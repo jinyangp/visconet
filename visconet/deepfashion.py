@@ -141,9 +141,9 @@ class DeepFashionDataset(Loader):
             target_pil = Image.open(target_path)
 
             # STEP: get openpose pose (use pretrained from HF)
+            # NOTE: target_pil and subsequently returned key target_img_pil = target_pil is using the original dimensions
             target_pose = get_openpose_annotations(target_pil)
             pose_image = self.skeleton_tform(target_pose)
-
             target_image = self.image_tform(target_pil)
 
             # STEP: Get text prompt
