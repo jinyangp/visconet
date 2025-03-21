@@ -1,6 +1,6 @@
 <a name="readme-top"></a>
 
-## *ViscoNet*: Bridging and Harmonizing Visual and Textual Conditioning for ControlNet
+## *ViscoNet2*: Improved Visconet for Generalised Human Pose Transfer
 
 <!-- TABLE OF CONTENTS -->
 <details>
