@@ -1,6 +1,6 @@
 <a name="readme-top"></a>
 
-## *ViscoNet*: Bridging and Harmonizing Visual and Textual Conditioning for ControlNet
+## *ViscoNet2*: Improved Visconet for Generalised Human Pose Transfer
 
 <!-- TABLE OF CONTENTS -->
 <details>
@@ -9,14 +9,15 @@
     <li>
       <a href="#about-the-project">About The Project</a>
       <ul>
-        <li><a href="#results">Proposed Architecture</a></li>
-        <li><a href="#built-with">Results</a></li>
+        <li><a href="#proposed-architecture">Proposed Architecture</a></li>
+        <li><a href="#results">Results</a></li>
       </ul>
     </li>
     <li>
       <a href="#getting-started">Getting Started</a>
+<!--       <a href="#files">Files</a> -->
     </li>
-    <li><a href="#acknowledgments">Acknowledgments</a></li>
+    <li><a href="#acknowledgements">Acknowledgements</a></li>
   </ol>
 </details>
 
@@ -42,8 +43,11 @@ Meanwhile, the original Visconet contains only the ControlNet module with the or
 
 <!-- RESULTS -->
 ## Results
+<div align="center">
 
-![Architecture](./assets/ablation_results.png)
+  ![Architecture](./assets/ablation_results.png)
+
+</div>
 <p align="center"><em>Results obtained from the chosen baselines and each ablation</em></p>
 
 <div align="center">
@@ -64,23 +68,48 @@ Meanwhile, the original Visconet contains only the ControlNet module with the or
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-<!-- CONTINUE HERE LATER
-### Requirements
-A suitable [conda](https://conda.io/) environment named `control` can be created
-and activated with:
+<!-- GETTING STARTED -->
+## Getting Started
+
+A suitable [conda](https://conda.io/) environment named `control` can be created and activated with:
+
 ```
-conda env create -f environment.yaml
+conda create -n control python=3.8.5
 conda activate control
 ```
-### Files
-All model and data files are in [here](https://huggingface.co/soonyau/visconet/tree/main).
-Including eval.zip containing all images used in human evaluation.
 
-### Gradio App
-[![App](./assets/app.png)](https://youtu.be/3_6Zq3hk86Q)
-run ```python gradio_visconet.py```
+Download all necessary requirements with:
+
+```
+pip install -r requirements.txt
+```
+
+To perform inference on a single pair of images, run `inference.py`. A sample command is provided below:
+
+```
+python3 -u inference.py <src_image_fp> <tgt_image_fp> --output_dir=<path/to/output/dir>  --gpu 0 --config=<path/to/config/file> --ckpt=<path/to/ckpt/file> --prompt='<text_prompt>' --n_prompt='<negative_text_prompt>' --ddim_steps=<num_ddim_steps> --cfg_scale=<cfg_scale>
+```
+
+To perform inference on a batch of samples, run `test.py`. A sample command is provided below:
+
+```
+python3 -u test.py --name=<project_name> --config=<path/to/config/file> --resume_path=<path/to/ckpt/file> --batch_size=<num_batch_size> --gpus 0
+```
+
+To train the model, run `train.py`. A sample command is provided below:
+
+```
+python3 -u train.py --name=<project_name> --config=<path/to/config/file> --resume_path=<path/to/ckpt/file> --gpus <list of gpu indexes> --max_epochs=<num_max_epoch> --batch_size=<num_batch_size>
+```
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+<!--
+## Files
 -->
 
-### Acknowledgement
+### Acknowledgements
 This project is based on the work done in [Visconet](https://github.com/soon-yau/visconet).  
 Special thanks to the original authors for their contributions.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
