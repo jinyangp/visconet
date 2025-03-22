@@ -67,8 +67,9 @@ class LocalStyleProjector(nn.Module):
         we only have one source image that is passed through this module to process. Hence, LocalStyleProjector receives an input with a batch size of 1.
         
         Args:
-            source_img_fp: str, filepath to the source image
-            seg_img_fp: str, filepath to the segmentation image for the fashion attributes
+            style_img: PIL.Image of the style image
+            target_img: PIL.Image of the target image
+            seg_img: PIL.Image of the segmentation image for the fashion attributes
             output_dir: str, output directory to the segmented fashion attribute
 
         Returns:

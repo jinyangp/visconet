@@ -169,8 +169,6 @@ class ControlNet(nn.Module):
             zero_module(conv_nd(dims, 256, model_channels, 3, padding=1))
         )
 
-        # TODO: We need an encoder for the source image at different levels
-
         self._feature_size = model_channels
         input_block_chans = [model_channels]
         ch = model_channels
@@ -290,7 +288,6 @@ class ControlNet(nn.Module):
     def make_zero_conv(self, channels):
         return TimestepEmbedSequential(zero_module(conv_nd(self.dims, channels, channels, 1, padding=0)))
 
-    # TODO: Need to change function signature
     def forward(self, x, hint, timesteps, context, **kwargs):
         t_emb = timestep_embedding(timesteps, self.model_channels, repeat_only=False)
         emb = self.time_embed(t_emb)
@@ -300,10 +297,6 @@ class ControlNet(nn.Module):
         outs = []
 
         h = x.type(self.dtype)
-        # NOTE: This only applies to the encoder blocks
-        # TODO: Modify AttentionBlock so that it has an attribute of the level it is in
-        # TODO: Modify this function so that if it is an AttentionBlock, we pass in the embeddings
-        # of that corresponding level
         for module, zero_conv in zip(self.input_blocks, self.zero_convs):
             if guided_hint is not None:
                 h = module(h, emb, context)
