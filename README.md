@@ -14,9 +14,13 @@
       </ul>
     </li>
     <li>
-      <a href="#getting-started">Getting Started</a>
-<!--       <a href="#files">Files</a> -->
+      <a href="#resources">Resources</a>
+      <ul>
+        <li><a href="#getting-started">Getting Started</a></li>
+        <li><a href="#files">Files</a></li>
+      </ul>
     </li>
+    </a>
     <li><a href="#acknowledgements">Acknowledgements</a></li>
   </ol>
 </details>
@@ -30,7 +34,7 @@ latest image prompt adapters, mainly ControlNet and IP-Adapter, with pre-trained
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 <!-- PROPOSED ARCHITECTURE -->
-## Proposed Architecture
+### Proposed Architecture
 
 ![Architecture](./assets/architecture.png)
 <p align="center"><em>Proposed Model Architecture</em></p>
@@ -42,7 +46,7 @@ Meanwhile, the original Visconet contains only the ControlNet module with the or
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 <!-- RESULTS -->
-## Results
+### Results
 <div align="center">
 
   ![Architecture](./assets/ablation_results.png)
@@ -68,8 +72,15 @@ Meanwhile, the original Visconet contains only the ControlNet module with the or
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
+<!-- RESOURCES -->
+## Resources
+
+This tab contains sample commands and a link containing the model's configuration files and pretrained weights to get started.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
 <!-- GETTING STARTED -->
-## Getting Started
+### Getting Started
 
 A suitable [conda](https://conda.io/) environment named `control` can be created and activated with:
 
@@ -104,9 +115,11 @@ python3 -u train.py --name=<project_name> --config=<path/to/config/file> --resum
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-<!--
-## Files
--->
+### Files
+
+The model configuration files and weights can be downloaded [here](https://huggingface.co/jinyangp/visconet2).
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 ### Acknowledgements
 This project is based on the work done in [Visconet](https://github.com/soon-yau/visconet).  
