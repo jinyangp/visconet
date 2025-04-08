@@ -105,18 +105,26 @@ class ViscoNetLDM(LatentDiffusion):
         if self.mask_key:
             ret_dict["c_concat_mask"] = [torch.stack(human_masks,dim=0)]
 
-        if self.use_ip:
-            if self.ip_mask_only:
-                src_img_masks = []
-                for src_img in src_img_pils:
-                    src_img_mask, _ = self.control_cond_model.human_segmentor(src_img)
-                    encoder_posterior = self.encode_first_stage(src_img_mask.unsqueeze(0))
-                    src_x = self.get_first_stage_encoding(encoder_posterior).detach()
-                    src_img_masks.append(src_x.squeeze(0))
-                ret_dict['c_src'] = [torch.stack(src_img_masks, dim=0)]
-            else:
-                src_x, _ = super().get_input(batch, "src_img", *args, **kwargs)
-                ret_dict["c_src"] = [src_x]
+        if self.use_ip:      
+            src_img_masks = []
+            for src_img in src_img_pils:
+                # STEP: Get mean and log-var from VAE
+                if self.ip_mask_only:
+                    src_img, _ = self.control_cond_model.human_segmentor(src_img)
+                    src_img = src_img.unsqueeze(0)
+                    src_img = torch.clip(src_img, min=0., max=1.)
+                else:
+                    src_img = src_img.resize((512,512))
+                    src_img = T.ToTensor()(src_img).to(self.device)
+                    src_img = src_img.unsqueeze(0)
+                src_img = src_img * 2. - 1
+                src_x = self.first_stage_model.encoder(src_img).detach()
+                
+                # STEP: Get deterministic latent of image (take only the means)
+                src_x = src_x[:, :4]  # Take the first 4 mean channels
+                
+                src_img_masks.append(src_x.squeeze(0))
+            ret_dict['c_src'] = [torch.stack(src_img_masks, dim=0)]
   
         # NOTE: Old way
         # -------
