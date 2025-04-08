@@ -152,10 +152,17 @@ if __name__ == "__main__":
     # STEP: Get source image embeddings
     if model.use_ip:
         src_img_latent = src_img
+
         if model.ip_mask_only:
-            src_img_latent, _ = model.control_cond_model.human_segmentor(src_img)
-        encoder_posterior = model.encode_first_stage(src_img_latent.unsqueeze(0))
-        src_img_latent = model.get_first_stage_encoding(encoder_posterior).detach()
+            src_img_latent, _ = model.control_cond_model.human_segmentor(src_img_latent)
+            src_img_latent = src_img_latent.unsqueeze(0)
+            src_img_latent = torch.clip(src_img_latent, min=0., max=1.)
+        else:
+            src_img_latent = src_img_latent.resize((512,512))
+            src_img_latent = T.ToTensor()(src_img_latent).to(model.device)
+        src_img_latent = src_img_latent * 2. - 1
+        src_img_latent = model.first_stage_model.encoder(src_img_latent).detach()
+        src_img_latent = src_img_latent[:, :4]
         src_img_latent = src_img_latent.repeat(num_samples,1,1,1)
 
         cond['c_src'] = [src_img_latent]
